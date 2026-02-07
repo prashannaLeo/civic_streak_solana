@@ -1,33 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Civic Streak - Build Your Civic Habit</title>
-    <link rel="stylesheet" href="src/style.css">
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <header>
-            <h1>🏛️ Civic Streak</h1>
-            <p class="tagline">Build daily civic habits on Solana</p>
-        </header>
-
-        <!-- Wallet Connection -->
-        <section id="wallet-section" class="card">
-            <div id="wallet-status">
-                <span class="status-dot"></span>
-                <span id="wallet-text">Connect your wallet to get started</span>
-            </div>
-            <button id="connect-btn" class="btn btn-primary">
-                Connect Phantom Wallet
-            </button>
-            <div id="wallet-address" class="hidden"></div>
-        </section>
-
-        <!-- Streak Dashboard -->
-        <section id="dashboard" class="hidden">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
             <!-- Current Streak -->
             <div class="card streak-card">
                 <div class="streak-icon">🔥</div>
