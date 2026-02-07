@@ -1,7 +1,7 @@
 import React from 'react';
 import { WalletContextProvider } from './contexts/WalletProvider';
 import { StreakComponent } from './components/StreakComponent';
-import './App.css';
+import './index.css';
 
 function App() {
   return (
