@@ -1,0 +1,56 @@
+# Rust/Anchor Build Artifacts
+/target/
+Cargo.lock
+**/*.rs.bk
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+dist/
+build/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+.env.production.local
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+
+# Logs
+logs/
+*.log
+lerna-debug.log*
+
+# Solana Playground
+.anchor/
+
+# OS Files
+Thumbs.db
+.DS_Store
+
+# Temporary Files
+tmp/
+temp/
+.cache/
+*.tmp
+
+# Test artifacts
+coverage/
+.nyc_output/
+
+# Miscellaneous
+*.pem
+.history/

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Civic Streak - Build Your Civic Habit</title>
+    <link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>🏛️ Civic Streak</h1>
+            <p class="tagline">Build daily civic habits on Solana</p>
+        </header>
+
+        <!-- Wallet Connection -->
+        <section id="wallet-section" class="card">
+            <div id="wallet-status">
+                <span class="status-dot"></span>
+                <span id="wallet-text">Connect your wallet to get started</span>
+            </div>
+            <button id="connect-btn" class="btn btn-primary">
+                Connect Phantom Wallet
+            </button>
+            <div id="wallet-address" class="hidden"></div>
+        </section>
+
+        <!-- Streak Dashboard -->
+        <section id="dashboard" class="hidden">
+            <!-- Current Streak -->
+            <div class="card streak-card">
+                <div class="streak-icon">🔥</div>
+                <div class="streak-count" id="streak-count">0</div>
+                <div class="streak-label">Day Streak</div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="card stat-card">
+                    <div class="stat-icon">📅</div>
+                    <div class="stat-value" id="last-active">--</div>
+                    <div class="stat-label">Last Active</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-icon">🏆</div>
+                    <div class="stat-value" id="civic-points">0</div>
+                    <div class="stat-label">Civic Points</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-icon">🎖️</div>
+                    <div class="stat-value" id="badges-earned">0/3</div>
+                    <div class="stat-label">Badges Earned</div>
+                </div>
+            </div>
+
+            <!-- Action Button -->
+            <div class="card action-card">
+                <button id="claim-btn" class="btn btn-claim">
+                    Mark Today's Civic Action
+                </button>
+                <p id="claim-status" class="status-text"></p>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="card progress-card">
+                <h3>Next Milestone</h3>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <p id="progress-text">0 / 7 days to first badge</p>
+            </div>
+
+            <!-- Badges Gallery -->
+            <div class="card badges-card">
+                <h3>🎖️ Badge Collection</h3>
+                <div class="badges-grid">
+                    <div class="badge" id="badge-7">
+                        <div class="badge-icon">🌟</div>
+                        <div class="badge-name">Civic Starter</div>
+                        <div class="badge-req">7 Days</div>
+                        <div class="badge-status locked">🔒</div>
+                    </div>
+                    <div class="badge" id="badge-30">
+                        <div class="badge-icon">🏅</div>
+                        <div class="badge-name">Consistent Citizen</div>
+                        <div class="badge-req">30 Days</div>
+                        <div class="badge-status locked">🔒</div>
+                    </div>
+                    <div class="badge" id="badge-100">
+                        <div class="badge-icon">👑</div>
+                        <div class="badge-name">Civic Champion</div>
+                        <div class="badge-req">100 Days</div>
+                        <div class="badge-status locked">🔒</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <p>Powered by Solana Blockchain</p>
+            <p class="disclaimer">Streaks reset if you miss 48+ hours between actions</p>
+        </footer>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>

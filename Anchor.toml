@@ -1,0 +1,28 @@
+[toolchain]
+channel = "stable"
+anchor_version = "0.32.1"
+
+[workspace]
+resolver = "2"
+
+[features]
+skip-lint = false
+
+[programs.localnet]
+civic_streak = "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze"
+
+[programs.devnet]
+civic_streak = "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze"
+
+[programs.testnet]
+civic_streak = "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Devnet"
+wallet = "/home/prashanna/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
