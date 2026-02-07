@@ -149,8 +149,11 @@ civic-streak/
 ### Prerequisites
 
 - **Rust** (latest stable) - `rustup install stable`
-- **Solana CLI** - `sh -c "$(curl -sSf https://solana.com/install)"``
-- **Anchor** - `cargo install --git https://github.com/coral-xyz/anchor --tag v0.30.1 --locked`
+- **Solana CLI** - Install using:
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev
+  ```
+- **Anchor** - `cargo install --git https://github.com/coral-xyz/anchor --tag v0.32.1 --locked`
 - **Node.js** (v18+) - for frontend
 - **Phantom Wallet** - browser extension
 
@@ -218,22 +221,118 @@ spl-token create-account <TOKEN_MINT_ADDRESS>
 spl-token mint <TOKEN_MINT_ADDRESS> 10000
 ```
 
-### Step 5: Update Frontend Config
+### Step 5: Configure Environment Variables
 
-In `frontend/src/App.tsx`, update:
-```typescript
-const PROGRAM_ID = new PublicKey('YourDeployedProgramId');
-const TOKEN_MINT = new PublicKey('YourTokenMintAddress');
+The frontend uses environment variables for secure configuration. Copy the example file:
+
+```bash
+cd frontend
+cp .env.example .env
 ```
+
+Update `.env` with your values:
+
+```env
+# Solana Network Configuration
+VITE_SOLANA_NETWORK=devnet
+VITE_SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
+
+# Program IDs
+VITE_CIVIC_STREAK_PROGRAM_ID=YourDeployedProgramId
+
+# API Configuration
+VITE_APP_NAME=Civic Streak
+VITE_APP_VERSION=1.0.0
+```
+
+**⚠️ Important**: Never commit `.env` file to version control. It's in `.gitignore` by default.
 
 ### Step 6: Run Frontend
 
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
 Open `http://localhost:3000` in your browser.
+
+---
+
+## 🔐 Environment Configuration
+
+### Frontend Configuration Files
+
+- **`.env`** - Local environment variables (git-ignored, never commit)
+- **`.env.example`** - Template for developers to copy and configure
+- **`src/vite-env.d.ts`** - TypeScript definitions for environment variables
+
+### Available Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `VITE_SOLANA_NETWORK` | Network to connect to (devnet/testnet/mainnet) | devnet |
+| `VITE_SOLANA_RPC_ENDPOINT` | Custom RPC endpoint | Solana public RPC |
+| `VITE_CIVIC_STREAK_PROGRAM_ID` | Deployed program's public key | - |
+| `VITE_APP_NAME` | Application name | Civic Streak |
+| `VITE_APP_VERSION` | Version number | 1.0.0 |
+
+### How Environment Variables Work
+
+Environment variables are:
+- Prefixed with `VITE_` (required by Vite)
+- Loaded from `.env` file at build time
+- Accessible via `import.meta.env.VITE_*` in code
+- Properly typed through `vite-env.d.ts`
+
+Example usage in code:
+```typescript
+const programId = import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID;
+const network = import.meta.env.VITE_SOLANA_NETWORK;
+```
+
+---
+
+## 📦 Recent Updates & Fixes
+
+### V2 Improvements (Current Release)
+
+#### Frontend Dependencies
+- ✅ Fixed package.json with correct `@coral-xyz/anchor` instead of `anchor-client`
+- ✅ Added `@types/node` for Node.js type definitions
+- ✅ Solana wallet adapter packages aligned to compatible versions:
+  - `@solana/wallet-adapter-react@^0.15.32`
+  - `@solana/wallet-adapter-react-ui@^0.9.38`
+  - `@solana/wallet-adapter-wallets@^0.19.28`
+
+#### Security & Configuration
+- ✅ Moved hardcoded secrets to `.env` files
+- ✅ Created `.env.example` template for developers
+- ✅ Added TypeScript definitions for environment variables (`vite-env.d.ts`)
+- ✅ All sensitive details (Program ID, RPC endpoints) now externalized
+
+#### Code Organization
+- ✅ Removed unused `standalone.html` file
+- ✅ Created comprehensive root `.gitignore` for both Rust and Node.js projects
+- ✅ Updated `client.ts` to read from environment variables
+- ✅ Updated `WalletProvider.tsx` to read from environment variables
+
+#### File Structure
+```
+frontend/
+├── .env                 # Local config (git-ignored)
+├── .env.example         # Template for other developers
+├── .gitignore           # Removed (using root .gitignore)
+├── src/
+│   ├── vite-env.d.ts   # Environment variable type definitions (NEW)
+│   ├── solana/client.ts # Uses import.meta.env variables
+│   ├── contexts/WalletProvider.tsx # Uses import.meta.env
+│   └── ...
+└── ...
+
+root/
+└── .gitignore           # Unified ignore rules for Rust + Node.js
+```
 
 ---
 
