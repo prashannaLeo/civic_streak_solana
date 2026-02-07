@@ -14,8 +14,6 @@ function App() {
 }
 
 export default App;
-
-// Metaplex Token Metadata Program ID
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjbVHGA8GhpV29i');
 
 // Badge milestones configuration
@@ -664,28 +662,5 @@ function AppContent() {
         </div>
       )}
     </div>
-  );
-}
-
-// =====================================================
-// APP WITH WALLET PROVIDERS
-// =====================================================
-export default function App() {
-  const wallets = useMemo(() => [
-    new PhantomWalletAdapter(),
-    new SolflareWalletAdapter(),
-    new TorusWalletAdapter(),
-  ], []);
-
-  const endpoint = useMemo(() => 'https://api.devnet.solana.com', []);
-
-  return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          <AppContent />
-        </WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
   );
 }
