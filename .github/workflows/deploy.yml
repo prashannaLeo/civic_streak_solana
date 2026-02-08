@@ -31,6 +31,10 @@ jobs:
 
       - name: Build
         run: |
+          # Copy IDL file to frontend
+          mkdir -p frontend/target/idl
+          cp target/idl/civic_streak.json frontend/target/idl/
+          
           cd frontend
           npm install
           npm install @vitejs/plugin-react

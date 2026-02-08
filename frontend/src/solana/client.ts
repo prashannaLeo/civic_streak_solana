@@ -3,10 +3,14 @@ import { Program, AnchorProvider } from "@coral-xyz/anchor";
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import IDL from "../../../target/idl/civic_streak.json";
 
-// Program ID from environment variables
-const PROGRAM_ID = new PublicKey(
-  import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID || "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze"
-);
+// Program ID from environment variables (required for production)
+const PROGRAM_ID = (() => {
+  const programId = import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID;
+  if (!programId) {
+    throw new Error("VITE_CIVIC_STREAK_PROGRAM_ID environment variable is not set");
+  }
+  return new PublicKey(programId);
+})();
 
 // RPC endpoint configuration
 export const getConnection = () => {
