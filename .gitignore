@@ -1,4 +1,8 @@
 # Rust/Anchor Build Artifacts
+# Keep IDL folder for frontend
+!target/idl/
+target/idl/*
+!target/idl/*.json
 /target/
 Cargo.lock
 **/*.rs.bk
