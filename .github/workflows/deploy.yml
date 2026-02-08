@@ -35,11 +35,12 @@ jobs:
           npm install
           npm install @vitejs/plugin-react
           npm run build
+        working-directory: .
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: frontend/dist
 
       - name: Deploy to GitHub Pages
         id: deployment
