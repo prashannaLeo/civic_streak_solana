@@ -14,8 +14,13 @@ const MILESTONES = [
 const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" && import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze"
+    : "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X"
 );
+
+// 8-byte instruction discriminators for Anchor instructions
+// These are the first 8 bytes of the SHA256 hash of the instruction name
+const DISCRIMINATOR_INITIALIZE = Buffer.from([138, 89, 85, 188, 47, 10, 83, 221]); // global:initializeUserStreak
+const DISCRIMINATOR_RECORD = Buffer.from([42, 22, 137, 51, 156, 75, 134, 226]); // global:recordDailyEngagement
 
 // Helper to get streak PDA
 const getUserStreakPDA = (userPublicKey: PublicKey) => {
@@ -88,7 +93,7 @@ export const StreakComponent: React.FC = () => {
     }
   }, [connected, publicKey, fetchStreakData]);
 
-  // Create instruction data for initialize_user_streak (discriminator: 0, 0, 0, 0)
+  // Create instruction data for initialize_user_streak (8-byte discriminator)
   const createInitializeInstruction = (userPubkey: PublicKey, streakPDA: PublicKey): TransactionInstruction => {
     return new TransactionInstruction({
       keys: [
@@ -97,11 +102,11 @@ export const StreakComponent: React.FC = () => {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId: PROGRAM_ID,
-      data: Buffer.from([0, 0, 0, 0]), // initialize_user_streak discriminator
+      data: DISCRIMINATOR_INITIALIZE,
     });
   };
 
-  // Create instruction data for record_daily_engagement (discriminator: 0, 1, 0, 0)
+  // Create instruction data for record_daily_engagement (8-byte discriminator)
   const createRecordEngagementInstruction = (userPubkey: PublicKey, streakPDA: PublicKey): TransactionInstruction => {
     return new TransactionInstruction({
       keys: [
@@ -110,7 +115,7 @@ export const StreakComponent: React.FC = () => {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId: PROGRAM_ID,
-      data: Buffer.from([0, 1, 0, 0]), // record_daily_engagement discriminator
+      data: DISCRIMINATOR_RECORD,
     });
   };
 
@@ -151,6 +156,7 @@ export const StreakComponent: React.FC = () => {
 
       console.log("Sending initialize transaction to program:", PROGRAM_ID.toString());
       console.log("Streak PDA:", streakPDA.toString());
+      console.log("Discriminator:", Array.from(DISCRIMINATOR_INITIALIZE));
       
       const signature = await sendTransaction(transaction, connection);
       console.log("Transaction signature:", signature);
