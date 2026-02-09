@@ -31,17 +31,17 @@ jobs:
 
       - name: Build
         run: |
-          # Create IDL if it doesn't exist (placeholder for demo)
+          # Copy IDL to frontend
           mkdir -p frontend/target/idl
-          if [ ! -f "target/idl/civic_streak.json" ]; then
-            echo '{"version":"0.1.0","name":"civic_streak","instructions":[],"accounts":[],"types":[]}' > frontend/target/idl/civic_streak.json
+          if [ -f "frontend/target/idl/civic_streak.json" ]; then
+            echo "IDL exists"
           else
-            cp target/idl/civic_streak.json frontend/target/idl/
+            # Create placeholder IDL
+            echo '{"version":"0.1.0","name":"civic_streak","instructions":[],"accounts":[],"types":[]}' > frontend/target/idl/civic_streak.json
           fi
           
           cd frontend
           npm install
-          npm install @vitejs/plugin-react
           npm run build
         working-directory: .
 

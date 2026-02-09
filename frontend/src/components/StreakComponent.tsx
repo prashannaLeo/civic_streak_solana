@@ -33,7 +33,7 @@ interface UserStreakData {
 }
 
 export const StreakComponent: React.FC = () => {
-  const { publicKey, connected, sendTransaction } = useWallet();
+  const { publicKey, connected, disconnect, disconnecting, sendTransaction } = useWallet();
   const { connection } = useConnection();
   
   const [loading, setLoading] = useState(false);
@@ -212,12 +212,20 @@ export const StreakComponent: React.FC = () => {
           ) : (
             <div style={styles.connectedInfo}>
               <div style={styles.walletIcon}>✅</div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={styles.walletLabel}>Connected</div>
                 <div style={styles.walletAddress}>
                   {publicKey?.toString().slice(0, 8)}...{publicKey?.toString().slice(-8)}
                 </div>
               </div>
+              <button
+                style={styles.disconnectBtn}
+                onClick={() => disconnect()}
+                disabled={disconnecting}
+                title="Disconnect wallet"
+              >
+                {disconnecting ? "..." : "🔌"}
+              </button>
             </div>
           )}
         </div>
@@ -419,6 +427,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: "rgba(16, 185, 129, 0.1)",
     border: "1px solid rgba(16, 185, 129, 0.3)",
     borderRadius: "12px",
+  },
+  disconnectBtn: {
+    background: "rgba(239, 68, 68, 0.2)",
+    border: "1px solid rgba(239, 68, 68, 0.4)",
+    padding: "8px 12px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "1.2rem",
+    transition: "all 0.2s",
   },
   walletIcon: {
     width: "40px",
