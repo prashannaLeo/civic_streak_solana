@@ -127,6 +127,15 @@ export const StreakComponent: React.FC = () => {
     try {
       const streakPDA = getUserStreakPDA(publicKey);
       
+      // Check if program exists on devnet
+      const programAccount = await connection.getAccountInfo(PROGRAM_ID);
+      if (!programAccount) {
+        setError("Program not deployed on devnet. Deploy first with: anchor deploy");
+        showMessage("Program not deployed! Run 'anchor deploy' in CLI", "error");
+        setLoading(false);
+        return;
+      }
+      
       // Check if account already exists
       const accountInfo = await connection.getAccountInfo(streakPDA);
       if (accountInfo) {
