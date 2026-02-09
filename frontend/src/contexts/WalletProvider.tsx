@@ -7,6 +7,8 @@ import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
+  CloverWalletAdapter,
+  BitKeepWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
 import { clusterApiUrl } from "@solana/web3.js";
 
@@ -27,7 +29,12 @@ export const WalletContextProvider: React.FC<WalletContextProviderProps> = ({
   );
 
   const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+    () => [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
+      new CloverWalletAdapter(),
+      new BitKeepWalletAdapter(),
+    ],
     []
   );
 

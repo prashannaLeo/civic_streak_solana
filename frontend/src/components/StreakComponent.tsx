@@ -10,17 +10,17 @@ const MILESTONES = [
   { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
 ];
 
-// Program ID from environment variable (with fallback)
+// Program ID from environment variable
 const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" && import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     : "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X"
 );
 
-// 8-byte instruction discriminators for Anchor instructions
-// These are the first 8 bytes of the SHA256 hash of the instruction name
-const DISCRIMINATOR_INITIALIZE = Buffer.from([138, 89, 85, 188, 47, 10, 83, 221]); // global:initializeUserStreak
-const DISCRIMINATOR_RECORD = Buffer.from([42, 22, 137, 51, 156, 75, 134, 226]); // global:recordDailyEngagement
+// Hardcoded discriminators (first 8 bytes of SHA256 of instruction names)
+// These are calculated from: sha256("global:initializeUserStreak") and sha256("global:recordDailyEngagement")
+const DISCRIMINATOR_INITIALIZE = Buffer.from([138, 89, 85, 188, 47, 10, 83, 221]);
+const DISCRIMINATOR_RECORD = Buffer.from([42, 22, 137, 51, 156, 75, 134, 226]);
 
 // Helper to get streak PDA
 const getUserStreakPDA = (userPublicKey: PublicKey) => {
@@ -59,7 +59,6 @@ export const StreakComponent: React.FC = () => {
       const accountInfo = await connection.getAccountInfo(streakPDA);
       
       if (accountInfo && accountInfo.data.length > 0) {
-        // Parse account data
         const data = accountInfo.data;
         const user = new PublicKey(data.slice(0, 32)).toString();
         const streakCount = Number(data.slice(32, 40).readBigUInt64LE());
@@ -86,15 +85,19 @@ export const StreakComponent: React.FC = () => {
     }
   }, [publicKey, connection]);
 
-  // Fetch on mount and when wallet connects
   useEffect(() => {
     if (connected && publicKey) {
       fetchStreakData();
     }
   }, [connected, publicKey, fetchStreakData]);
 
-  // Create instruction data for initialize_user_streak (8-byte discriminator)
-  const createInitializeInstruction = (userPubkey: PublicKey, streakPDA: PublicKey): TransactionInstruction => {
+  // Create instruction with correct accounts
+  const createInstruction = (
+    userPubkey: PublicKey,
+    discriminator: Buffer
+  ): TransactionInstruction => {
+    const streakPDA = getUserStreakPDA(userPubkey);
+    
     return new TransactionInstruction({
       keys: [
         { pubkey: userPubkey, isSigner: true, isWritable: true },
@@ -102,20 +105,7 @@ export const StreakComponent: React.FC = () => {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId: PROGRAM_ID,
-      data: DISCRIMINATOR_INITIALIZE,
-    });
-  };
-
-  // Create instruction data for record_daily_engagement (8-byte discriminator)
-  const createRecordEngagementInstruction = (userPubkey: PublicKey, streakPDA: PublicKey): TransactionInstruction => {
-    return new TransactionInstruction({
-      keys: [
-        { pubkey: userPubkey, isSigner: true, isWritable: true },
-        { pubkey: streakPDA, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      programId: PROGRAM_ID,
-      data: DISCRIMINATOR_RECORD,
+      data: discriminator,
     });
   };
 
@@ -130,42 +120,42 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const streakPDA = getUserStreakPDA(publicKey);
-      
-      // Check if program exists on devnet
+      console.log("=== DEBUG ===");
+      console.log("Program ID:", PROGRAM_ID.toString());
+      console.log("User:", publicKey.toString());
+      console.log("Discriminator (hex):", DISCRIMINATOR_INITIALIZE.toString('hex'));
+
+      // Check if program exists
       const programAccount = await connection.getAccountInfo(PROGRAM_ID);
       if (!programAccount) {
-        setError("Program not deployed on devnet. Deploy first with: anchor deploy");
-        showMessage("Program not deployed! Run 'anchor deploy' in CLI", "error");
-        setLoading(false);
-        return;
+        throw new Error("Program not deployed at " + PROGRAM_ID.toString());
       }
-      
-      // Check if account already exists
-      const accountInfo = await connection.getAccountInfo(streakPDA);
-      if (accountInfo) {
-        showMessage("✅ Streak account already exists!", "info");
-        await fetchStreakData();
-        setLoading(false);
-        return;
-      }
-      
-      const transaction = new Transaction().add(
-        createInitializeInstruction(publicKey, streakPDA)
-      );
 
-      console.log("Sending initialize transaction to program:", PROGRAM_ID.toString());
-      console.log("Streak PDA:", streakPDA.toString());
-      console.log("Discriminator:", Array.from(DISCRIMINATOR_INITIALIZE));
-      
+      // Create transaction
+      const instruction = createInstruction(publicKey, DISCRIMINATOR_INITIALIZE);
+      const transaction = new Transaction().add(instruction);
+
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      console.log("Sending transaction...");
+
       const signature = await sendTransaction(transaction, connection);
-      console.log("Transaction signature:", signature);
-      await connection.confirmTransaction(signature, "confirmed");
-      
+      console.log("Signature:", signature);
+
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight
+      }, 'confirmed');
+
+      console.log("Confirmed!");
+
       await fetchStreakData();
-      showMessage("🎉 Streak account created on Solana!", "success");
+      showMessage("🎉 Streak account created!", "success");
     } catch (err: any) {
-      console.error("Error initializing streak:", err);
+      console.error("Error:", err);
       setError(err.message || "Failed to create streak account");
       showMessage(err.message || "Failed to create streak account", "error");
     } finally {
@@ -184,24 +174,29 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const streakPDA = getUserStreakPDA(publicKey);
-      
-      const transaction = new Transaction().add(
-        createRecordEngagementInstruction(publicKey, streakPDA)
-      );
+      const instruction = createInstruction(publicKey, DISCRIMINATOR_RECORD);
+      const transaction = new Transaction().add(instruction);
+
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
 
       const signature = await sendTransaction(transaction, connection);
-      await connection.confirmTransaction(signature, "confirmed");
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight
+      }, 'confirmed');
       
       await fetchStreakData();
       
       const newStreak = (streakData?.streakCount || 0) + 1;
       showMessage(`🔥 Streak: ${newStreak} days!`, "success");
     } catch (err: any) {
-      console.error("Error recording engagement:", err);
+      console.error("Error:", err);
       
-      if (err.message?.includes("already claimed") || err.message?.includes("AlreadyClaimedToday")) {
-        showMessage("⏰ You've already claimed today! Come back tomorrow.", "error");
+      if (err.message?.includes("already claimed")) {
+        showMessage("⏰ You've already claimed today!", "error");
       } else {
         setError(err.message || "Failed to record engagement");
         showMessage(err.message || "Failed to record engagement", "error");
@@ -216,7 +211,6 @@ export const StreakComponent: React.FC = () => {
     setTimeout(() => setMessage(null), 5000);
   };
 
-  // Calculate progress
   const streak = streakData?.streakCount || 0;
   const nextMilestone = MILESTONES.find((m) => streak < m.days) || MILESTONES[MILESTONES.length - 1];
   const progressPercent = Math.min((streak / nextMilestone.days) * 100, 100);
@@ -224,7 +218,6 @@ export const StreakComponent: React.FC = () => {
 
   return (
     <div style={styles.container}>
-      {/* Header */}
       <header style={styles.header}>
         <div style={styles.logo}>
           <span style={styles.logoIcon}>🏛️</span>
@@ -233,7 +226,6 @@ export const StreakComponent: React.FC = () => {
         <p style={styles.subtitle}>Build consistent civic habits on Solana</p>
       </header>
 
-      {/* Wallet Card */}
       <div style={styles.card}>
         <div style={styles.cardContent}>
           {!connected ? (
@@ -251,7 +243,6 @@ export const StreakComponent: React.FC = () => {
                 style={styles.disconnectBtn}
                 onClick={() => disconnect()}
                 disabled={disconnecting}
-                title="Disconnect wallet"
               >
                 {disconnecting ? "..." : "🔌"}
               </button>
@@ -260,14 +251,12 @@ export const StreakComponent: React.FC = () => {
         </div>
       </div>
 
-      {/* Error Message */}
       {error && (
         <div style={styles.errorBanner}>
           ❌ {error}
         </div>
       )}
 
-      {/* Main Content */}
       {connected && (
         <>
           {!hasAccount ? (
@@ -275,7 +264,7 @@ export const StreakComponent: React.FC = () => {
               <div style={styles.centerContent}>
                 <h2 style={styles.sectionTitle}>🚀 Start Your Civic Journey</h2>
                 <p style={styles.sectionText}>
-                  Create your streak account on Solana blockchain to start earning points and badges!
+                  Create your streak account on Solana blockchain!
                 </p>
                 <button
                   style={styles.primaryBtn}
@@ -288,7 +277,6 @@ export const StreakComponent: React.FC = () => {
             </div>
           ) : (
             <>
-              {/* Streak Card */}
               <div style={styles.card}>
                 <div style={styles.streakCircle}>
                   <span style={styles.streakNumber}>{streak}</span>
@@ -304,7 +292,6 @@ export const StreakComponent: React.FC = () => {
                 </button>
               </div>
 
-              {/* Stats */}
               <div style={styles.statsGrid}>
                 <div style={styles.statItem}>
                   <div style={styles.statValue}>
@@ -324,7 +311,6 @@ export const StreakComponent: React.FC = () => {
                 </div>
               </div>
 
-              {/* Progress */}
               <div style={styles.card}>
                 <div style={styles.progressHeader}>
                   <span style={styles.progressTitle}>🎯 Next Milestone</span>
@@ -340,7 +326,6 @@ export const StreakComponent: React.FC = () => {
                 </p>
               </div>
 
-              {/* Badges */}
               <div style={styles.card}>
                 <h3 style={styles.badgesTitle}>🎖️ Badge Collection</h3>
                 <div style={styles.badgesGrid}>
@@ -370,7 +355,6 @@ export const StreakComponent: React.FC = () => {
         </>
       )}
 
-      {/* Toast */}
       {message && (
         <div style={{ 
           ...styles.toast, 
@@ -380,7 +364,6 @@ export const StreakComponent: React.FC = () => {
         </div>
       )}
 
-      {/* Footer */}
       <footer style={styles.footer}>
         <p>⚡ Powered by Solana Blockchain</p>
         <p style={styles.disclaimer}>Streaks are stored on-chain and tamper-proof</p>
@@ -399,20 +382,9 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: "#0f172a",
     minHeight: "100vh",
   },
-  header: {
-    textAlign: "center",
-    marginBottom: "32px",
-  },
-  logo: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "12px",
-    marginBottom: "8px",
-  },
-  logoIcon: {
-    fontSize: "32px",
-  },
+  header: { textAlign: "center", marginBottom: "32px" },
+  logo: { display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginBottom: "8px" },
+  logoIcon: { fontSize: "32px" },
   title: {
     fontSize: "1.75rem",
     fontWeight: "800",
@@ -420,10 +392,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     WebkitBackgroundClip: "text",
     WebkitTextFillColor: "transparent",
   },
-  subtitle: {
-    color: "#94a3b8",
-    fontSize: "0.95rem",
-  },
+  subtitle: { color: "#94a3b8", fontSize: "0.95rem" },
   card: {
     background: "#1e293b",
     border: "1px solid #334155",
@@ -431,9 +400,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "24px",
     marginBottom: "16px",
   },
-  cardContent: {
-    textAlign: "center",
-  },
+  cardContent: { textAlign: "center" },
   walletBtn: {
     display: "inline-flex",
     alignItems: "center",
@@ -464,7 +431,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: "8px",
     cursor: "pointer",
     fontSize: "1.2rem",
-    transition: "all 0.2s",
   },
   walletIcon: {
     width: "40px",
@@ -476,15 +442,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "center",
     fontSize: "18px",
   },
-  walletLabel: {
-    fontSize: "0.75rem",
-    color: "#64748b",
-    textTransform: "uppercase",
-  },
-  walletAddress: {
-    fontWeight: "600",
-    fontFamily: "monospace",
-  },
+  walletLabel: { fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" },
+  walletAddress: { fontWeight: "600", fontFamily: "monospace" },
   errorBanner: {
     background: "rgba(239, 68, 68, 0.2)",
     border: "1px solid #ef4444",
@@ -494,18 +453,9 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: "#ef4444",
     textAlign: "center",
   },
-  centerContent: {
-    textAlign: "center",
-  },
-  sectionTitle: {
-    fontSize: "1.25rem",
-    fontWeight: "600",
-    marginBottom: "12px",
-  },
-  sectionText: {
-    color: "#94a3b8",
-    marginBottom: "24px",
-  },
+  centerContent: { textAlign: "center" },
+  sectionTitle: { fontSize: "1.25rem", fontWeight: "600", marginBottom: "12px" },
+  sectionText: { color: "#94a3b8", marginBottom: "24px" },
   primaryBtn: {
     background: "linear-gradient(135deg, #10b981, #059669)",
     border: "none",
@@ -516,21 +466,9 @@ const styles: { [key: string]: React.CSSProperties } = {
     cursor: "pointer",
     color: "#fff",
   },
-  streakCircle: {
-    textAlign: "center",
-    padding: "20px 0",
-    marginBottom: "20px",
-  },
-  streakNumber: {
-    display: "block",
-    fontSize: "4rem",
-    fontWeight: "800",
-    color: "#f8fafc",
-  },
-  streakLabel: {
-    color: "#94a3b8",
-    fontSize: "1rem",
-  },
+  streakCircle: { textAlign: "center", padding: "20px 0", marginBottom: "20px" },
+  streakNumber: { display: "block", fontSize: "4rem", fontWeight: "800", color: "#f8fafc" },
+  streakLabel: { color: "#94a3b8", fontSize: "1rem" },
   claimBtn: {
     width: "100%",
     padding: "16px 24px",
@@ -559,83 +497,31 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: "1px solid #334155",
     borderRadius: "12px",
   },
-  statValue: {
-    fontSize: "1.5rem",
-    fontWeight: "700",
-    color: "#818cf8",
-  },
-  statLabel: {
-    fontSize: "0.75rem",
-    color: "#64748b",
-    textTransform: "uppercase",
-    marginTop: "4px",
-  },
-  progressHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "16px",
-  },
-  progressTitle: {
-    fontWeight: "600",
-    fontSize: "1rem",
-  },
-  progressPercent: {
-    fontWeight: "700",
-    color: "#818cf8",
-  },
-  progressBarContainer: {
-    height: "12px",
-    background: "#334155",
-    borderRadius: "6px",
-    overflow: "hidden",
-    marginBottom: "12px",
-  },
+  statValue: { fontSize: "1.5rem", fontWeight: "700", color: "#818cf8" },
+  statLabel: { fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", marginTop: "4px" },
+  progressHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" },
+  progressTitle: { fontWeight: "600", fontSize: "1rem" },
+  progressPercent: { fontWeight: "700", color: "#818cf8" },
+  progressBarContainer: { height: "12px", background: "#334155", borderRadius: "6px", overflow: "hidden", marginBottom: "12px" },
   progressBar: {
     height: "100%",
     background: "linear-gradient(90deg, #6366f1, #10b981)",
     borderRadius: "6px",
     transition: "width 0.5s ease",
   },
-  progressText: {
-    textAlign: "center",
-    fontSize: "0.85rem",
-    color: "#94a3b8",
-  },
-  badgesTitle: {
-    fontSize: "1.1rem",
-    fontWeight: "600",
-    marginBottom: "20px",
-  },
-  badgesGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "12px",
-  },
+  progressText: { textAlign: "center", fontSize: "0.85rem", color: "#94a3b8" },
+  badgesTitle: { fontSize: "1.1rem", fontWeight: "600", marginBottom: "20px" },
+  badgesGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" },
   badgeItem: {
     textAlign: "center",
     padding: "20px 12px",
     borderRadius: "16px",
     border: "2px solid transparent",
   },
-  badgeIcon: {
-    fontSize: "2.5rem",
-    display: "block",
-    marginBottom: "12px",
-  },
-  badgeName: {
-    fontSize: "0.85rem",
-    fontWeight: "600",
-    marginBottom: "4px",
-  },
-  badgeDays: {
-    fontSize: "0.75rem",
-    color: "#64748b",
-  },
-  badgeStatus: {
-    marginTop: "12px",
-    fontSize: "1.5rem",
-  },
+  badgeIcon: { fontSize: "2.5rem", display: "block", marginBottom: "12px" },
+  badgeName: { fontSize: "0.85rem", fontWeight: "600", marginBottom: "4px" },
+  badgeDays: { fontSize: "0.75rem", color: "#64748b" },
+  badgeStatus: { marginTop: "12px", fontSize: "1.5rem" },
   toast: {
     position: "fixed",
     bottom: "24px",
@@ -655,9 +541,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: "#64748b",
     fontSize: "0.9rem",
   },
-  disclaimer: {
-    fontSize: "0.8rem",
-    opacity: 0.7,
-    marginTop: "8px",
-  },
+  disclaimer: { fontSize: "0.8rem", opacity: 0.7, marginTop: "8px" },
 };
