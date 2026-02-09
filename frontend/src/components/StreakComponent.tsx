@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { Program, AnchorProvider, BN, web3 } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { civicStreakIdl } from "../solana/idl";
+import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 
 // Milestone configuration
 const MILESTONES = [
@@ -12,8 +10,12 @@ const MILESTONES = [
   { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
 ];
 
-// Program ID from environment variable
-const PROGRAM_ID = new PublicKey(import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID || "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze");
+// Program ID from environment variable (with fallback)
+const PROGRAM_ID = new PublicKey(
+  typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" && import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    : "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze"
+);
 
 // Helper to get streak PDA
 const getUserStreakPDA = (userPublicKey: PublicKey) => {
@@ -42,20 +44,6 @@ export const StreakComponent: React.FC = () => {
   const [streakData, setStreakData] = useState<UserStreakData | null>(null);
   const [hasAccount, setHasAccount] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
-
-  // Get provider and program
-  const getProvider = useCallback(() => {
-    return new AnchorProvider(
-      connection,
-      { publicKey: publicKey || undefined, signTransaction: sendTransaction || undefined } as any,
-      { commitment: "confirmed" }
-    );
-  }, [connection, publicKey, sendTransaction]);
-
-  const getProgram = useCallback(() => {
-    const provider = getProvider();
-    return new Program(civicStreakIdl as any, PROGRAM_ID, provider);
-  }, [getProvider]);
 
   // Fetch streak data from blockchain
   const fetchStreakData = useCallback(async () => {
@@ -100,7 +88,33 @@ export const StreakComponent: React.FC = () => {
     }
   }, [connected, publicKey, fetchStreakData]);
 
-  // Initialize streak account by calling Anchor program
+  // Create instruction data for initialize_user_streak (discriminator: 0, 0, 0, 0)
+  const createInitializeInstruction = (userPubkey: PublicKey, streakPDA: PublicKey): TransactionInstruction => {
+    return new TransactionInstruction({
+      keys: [
+        { pubkey: userPubkey, isSigner: true, isWritable: true },
+        { pubkey: streakPDA, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      programId: PROGRAM_ID,
+      data: Buffer.from([0, 0, 0, 0]), // initialize_user_streak discriminator
+    });
+  };
+
+  // Create instruction data for record_daily_engagement (discriminator: 0, 1, 0, 0)
+  const createRecordEngagementInstruction = (userPubkey: PublicKey, streakPDA: PublicKey): TransactionInstruction => {
+    return new TransactionInstruction({
+      keys: [
+        { pubkey: userPubkey, isSigner: true, isWritable: true },
+        { pubkey: streakPDA, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      programId: PROGRAM_ID,
+      data: Buffer.from([0, 1, 0, 0]), // record_daily_engagement discriminator
+    });
+  };
+
+  // Initialize streak account
   const initializeStreak = async () => {
     if (!publicKey || !sendTransaction) {
       setError("Wallet not connected");
@@ -111,20 +125,13 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const program = getProgram();
       const streakPDA = getUserStreakPDA(publicKey);
+      
+      const transaction = new Transaction().add(
+        createInitializeInstruction(publicKey, streakPDA)
+      );
 
-      // Call the Anchor program's initializeUserStreak instruction
-      const tx = await program.methods
-        .initializeUserStreak()
-        .accounts({
-          user: publicKey,
-          userStreak: streakPDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction();
-
-      const signature = await sendTransaction(tx, connection);
+      const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature, "confirmed");
       
       await fetchStreakData();
@@ -138,7 +145,7 @@ export const StreakComponent: React.FC = () => {
     }
   };
 
-  // Record daily engagement by calling Anchor program
+  // Record daily engagement
   const recordDailyEngagement = async () => {
     if (!publicKey || !sendTransaction) {
       setError("Wallet not connected");
@@ -149,20 +156,13 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const program = getProgram();
       const streakPDA = getUserStreakPDA(publicKey);
+      
+      const transaction = new Transaction().add(
+        createRecordEngagementInstruction(publicKey, streakPDA)
+      );
 
-      // Call the Anchor program's recordDailyEngagement instruction
-      const tx = await program.methods
-        .recordDailyEngagement()
-        .accounts({
-          user: publicKey,
-          userStreak: streakPDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction();
-
-      const signature = await sendTransaction(tx, connection);
+      const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature, "confirmed");
       
       await fetchStreakData();
