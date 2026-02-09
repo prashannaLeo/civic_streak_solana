@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { AnchorProvider } from "@coral-xyz/anchor";
-import { PublicKey, Connection, Transaction, SystemProgram } from "@solana/web3.js";
+import { Program, AnchorProvider, BN, web3 } from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { civicStreakIdl } from "../solana/idl";
 
 // Milestone configuration
 const MILESTONES = [
   { days: 7, name: "Civic Starter", icon: "🌟", color: "#fbbf24" },
-  { days: 30, name: "Consistent", icon: "🏆", color: "#60a5fa" },
-  { days: 100, name: "Champion", icon: "👑", color: "#a78bfa" },
+  { days: 14, name: "Consistent", icon: "⭐", color: "#60a5fa" },
+  { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
 ];
 
-// Program ID from environment
-const PROGRAM_ID = new PublicKey(import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID || "FYFvnLGz2FJstEDp8dvXMkUiRsEu4z14HwM1vP2Mdag9");
+// Program ID from deployed program
+const PROGRAM_ID = new PublicKey("3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze");
 
 // Helper to get streak PDA
 const getUserStreakPDA = (userPublicKey: PublicKey) => {
@@ -23,7 +24,7 @@ const getUserStreakPDA = (userPublicKey: PublicKey) => {
   return pda;
 };
 
-// Interface for streak data (matches on-chain structure)
+// Interface for streak data
 interface UserStreakData {
   user: string;
   streakCount: number;
@@ -42,7 +43,7 @@ export const StreakComponent: React.FC = () => {
   const [hasAccount, setHasAccount] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
-  // Get provider
+  // Get provider and program
   const getProvider = useCallback(() => {
     return new AnchorProvider(
       connection,
@@ -51,27 +52,30 @@ export const StreakComponent: React.FC = () => {
     );
   }, [connection, publicKey, sendTransaction]);
 
+  const getProgram = useCallback(() => {
+    const provider = getProvider();
+    return new Program(civicStreakIdl as any, PROGRAM_ID, provider);
+  }, [getProvider]);
+
   // Fetch streak data from blockchain
   const fetchStreakData = useCallback(async () => {
     if (!publicKey) return;
 
     try {
       const streakPDA = getUserStreakPDA(publicKey);
-      
-      // Try to fetch account data
       const accountInfo = await connection.getAccountInfo(streakPDA);
       
       if (accountInfo && accountInfo.data.length > 0) {
+        // Parse account data
         const data = accountInfo.data;
-        // Parse the account data (based on Anchor's borsh serialization)
-        // Offset: 8 bytes discriminator + 32 bytes user pubkey
-        const streakCount = Number(data.slice(40, 48).readBigUInt64LE());
-        const lastInteractionTs = Number(data.slice(48, 56).readBigInt64LE());
-        const createdTs = Number(data.slice(56, 64).readBigInt64LE());
-        const milestoneClaimed = data[64];
+        const user = new PublicKey(data.slice(0, 32)).toString();
+        const streakCount = Number(data.slice(32, 40).readBigUInt64LE());
+        const lastInteractionTs = Number(data.slice(40, 48).readBigInt64LE());
+        const createdTs = Number(data.slice(48, 56).readBigInt64LE());
+        const milestoneClaimed = data[56];
         
         setStreakData({
-          user: publicKey.toString(),
+          user,
           streakCount,
           lastInteractionTs,
           createdTs,
@@ -96,7 +100,7 @@ export const StreakComponent: React.FC = () => {
     }
   }, [connected, publicKey, fetchStreakData]);
 
-  // Initialize streak account on blockchain
+  // Initialize streak account by calling Anchor program
   const initializeStreak = async () => {
     if (!publicKey || !sendTransaction) {
       setError("Wallet not connected");
@@ -107,20 +111,20 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
+      const program = getProgram();
       const streakPDA = getUserStreakPDA(publicKey);
-      
-      // Create account transaction
-      const transaction = new Transaction().add(
-        SystemProgram.createAccount({
-          fromPubkey: publicKey,
-          newAccountPubkey: streakPDA,
-          lamports: await connection.getMinimumBalanceForRentExemption(64),
-          space: 64,
-          programId: PROGRAM_ID,
-        })
-      );
 
-      const signature = await sendTransaction(transaction, connection);
+      // Call the Anchor program's initializeUserStreak instruction
+      const tx = await program.methods
+        .initializeUserStreak()
+        .accounts({
+          user: publicKey,
+          userStreak: streakPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction();
+
+      const signature = await sendTransaction(tx, connection);
       await connection.confirmTransaction(signature, "confirmed");
       
       await fetchStreakData();
@@ -134,7 +138,7 @@ export const StreakComponent: React.FC = () => {
     }
   };
 
-  // Record daily engagement on blockchain
+  // Record daily engagement by calling Anchor program
   const recordDailyEngagement = async () => {
     if (!publicKey || !sendTransaction) {
       setError("Wallet not connected");
@@ -145,23 +149,20 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const provider = getProvider();
+      const program = getProgram();
       const streakPDA = getUserStreakPDA(publicKey);
-      
-      // Create instruction data
-      const instructionData = Buffer.from([0, 0, 0, 0]); // 4-byte discriminator for record_daily_engagement
-      
-      const transaction = new Transaction().add({
-        keys: [
-          { pubkey: publicKey, isSigner: true, isWritable: true },
-          { pubkey: streakPDA, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_ID,
-        data: instructionData,
-      });
 
-      const signature = await sendTransaction(transaction, connection);
+      // Call the Anchor program's recordDailyEngagement instruction
+      const tx = await program.methods
+        .recordDailyEngagement()
+        .accounts({
+          user: publicKey,
+          userStreak: streakPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction();
+
+      const signature = await sendTransaction(tx, connection);
       await connection.confirmTransaction(signature, "confirmed");
       
       await fetchStreakData();
