@@ -127,11 +127,24 @@ export const StreakComponent: React.FC = () => {
     try {
       const streakPDA = getUserStreakPDA(publicKey);
       
+      // Check if account already exists
+      const accountInfo = await connection.getAccountInfo(streakPDA);
+      if (accountInfo) {
+        showMessage("✅ Streak account already exists!", "info");
+        await fetchStreakData();
+        setLoading(false);
+        return;
+      }
+      
       const transaction = new Transaction().add(
         createInitializeInstruction(publicKey, streakPDA)
       );
 
+      console.log("Sending initialize transaction to program:", PROGRAM_ID.toString());
+      console.log("Streak PDA:", streakPDA.toString());
+      
       const signature = await sendTransaction(transaction, connection);
+      console.log("Transaction signature:", signature);
       await connection.confirmTransaction(signature, "confirmed");
       
       await fetchStreakData();
