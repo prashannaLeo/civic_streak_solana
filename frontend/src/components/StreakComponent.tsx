@@ -12,8 +12,8 @@ const MILESTONES = [
   { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
 ];
 
-// Program ID from deployed program
-const PROGRAM_ID = new PublicKey("3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze");
+// Program ID from environment variable
+const PROGRAM_ID = new PublicKey(import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID || "3twLpAWhqJdrQJ52pEGjUXA9yiLRpGB9fnTa6knzALze");
 
 // Helper to get streak PDA
 const getUserStreakPDA = (userPublicKey: PublicKey) => {
