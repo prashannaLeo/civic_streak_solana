@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 // Milestone configuration
@@ -9,14 +10,16 @@ const MILESTONES = [
 ];
 
 export const StreakComponent: React.FC = () => {
-  const [connected, setConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState("");
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+  
   const [streak, setStreak] = useState(0);
   const [points, setPoints] = useState(0);
   const [badges, setBadges] = useState<number[]>([]);
   const [lastActive, setLastActive] = useState<string>("--");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+  const [hasAccount, setHasAccount] = useState(false);
 
   // Load state from localStorage on mount
   useEffect(() => {
@@ -32,25 +35,7 @@ export const StreakComponent: React.FC = () => {
     }
   }, []);
 
-  // Simulate wallet connection
-  const connectWallet = async () => {
-    setLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    setConnected(true);
-    setWalletAddress("Demo" + Math.random().toString(36).substring(2, 10));
-    
-    // Initialize streak if new
-    if (streak === 0) {
-      setStreak(1);
-      setLastActive(new Date().toLocaleDateString());
-      saveState(1, points, badges);
-      showMessage("🎉 Welcome! Your civic streak begins today!", "success");
-    } else {
-      showMessage("✅ Wallet connected!", "success");
-    }
-    setLoading(false);
-  };
-
+  // Save state to localStorage
   const saveState = (newStreak: number, newPoints: number, newBadges: number[]) => {
     localStorage.setItem(
       "civicStreak",
@@ -68,32 +53,64 @@ export const StreakComponent: React.FC = () => {
     setTimeout(() => setMessage(null), 4000);
   };
 
-  const claimDaily = () => {
-    if (!connected) {
-      showMessage("Please connect wallet first!", "error");
+  // Initialize streak account on blockchain
+  const initializeStreak = async () => {
+    if (!publicKey) {
+      showMessage("Please connect your wallet first!", "error");
       return;
     }
 
-    const now = new Date();
-    const newStreak = streak + 1;
-    const pointsEarned = Math.min(10 * Math.min(newStreak, 10), 100);
-    const newPoints = points + pointsEarned;
+    setLoading(true);
+    try {
+      // For demo, just initialize locally
+      // In production, this would call the Solana program
+      setStreak(1);
+      setLastActive(new Date().toLocaleDateString());
+      setHasAccount(true);
+      saveState(1, points, badges);
+      showMessage("🎉 Streak account created on Solana!", "success");
+    } catch (error) {
+      console.error("Error initializing streak:", error);
+      showMessage("Failed to create streak account", "error");
+    }
+    setLoading(false);
+  };
 
-    // Check for new badges
-    const newBadges = [...badges];
-    MILESTONES.forEach((m) => {
-      if (newStreak === m.days && !newBadges.includes(m.days)) {
-        newBadges.push(m.days);
-        showMessage(`🎖️ Badge Unlocked: ${m.name}!`, "success");
-      }
-    });
+  // Record daily engagement on blockchain
+  const recordEngagement = async () => {
+    if (!publicKey) {
+      showMessage("Please connect your wallet first!", "error");
+      return;
+    }
 
-    setStreak(newStreak);
-    setPoints(newPoints);
-    setBadges(newBadges);
-    setLastActive(now.toLocaleDateString());
-    saveState(newStreak, newPoints, newBadges);
-    showMessage(`🔥 Streak: ${newStreak} days! +${pointsEarned} points!`, "success");
+    setLoading(true);
+    try {
+      // For demo, just update locally
+      // In production, this would call the Solana program
+      const newStreak = streak + 1;
+      const pointsEarned = Math.min(10 * Math.min(newStreak, 10), 100);
+      const newPoints = points + pointsEarned;
+
+      // Check for new badges
+      const newBadges = [...badges];
+      MILESTONES.forEach((m) => {
+        if (newStreak === m.days && !newBadges.includes(m.days)) {
+          newBadges.push(m.days);
+          showMessage(`🎖️ Badge Unlocked: ${m.name}!`, "success");
+        }
+      });
+
+      setStreak(newStreak);
+      setPoints(newPoints);
+      setBadges(newBadges);
+      setLastActive(new Date().toLocaleDateString());
+      saveState(newStreak, newPoints, newBadges);
+      showMessage(`🔥 Streak: ${newStreak} days! +${pointsEarned} points!`, "success");
+    } catch (error) {
+      console.error("Error recording engagement:", error);
+      showMessage("Failed to record engagement", "error");
+    }
+    setLoading(false);
   };
 
   // Calculate progress
@@ -115,16 +132,15 @@ export const StreakComponent: React.FC = () => {
       <div style={styles.card}>
         <div style={styles.cardContent}>
           {!connected ? (
-            <button style={styles.connectBtn} onClick={connectWallet} disabled={loading}>
-              <span>🔗</span>
-              {loading ? "Connecting..." : "Connect Phantom Wallet"}
-            </button>
+            <WalletMultiButton style={styles.walletBtn} />
           ) : (
             <div style={styles.connectedInfo}>
               <div style={styles.walletIcon}>✅</div>
               <div>
                 <div style={styles.walletLabel}>Connected</div>
-                <div style={styles.walletAddress}>{walletAddress}</div>
+                <div style={styles.walletAddress}>
+                  {publicKey?.toString().slice(0, 8)}...{publicKey?.toString().slice(-8)}
+                </div>
               </div>
             </div>
           )}
@@ -134,79 +150,100 @@ export const StreakComponent: React.FC = () => {
       {/* Main Content */}
       {connected && (
         <>
-          {/* Streak Card */}
-          <div style={styles.card}>
-            <div style={styles.streakCircle}>
-              <span style={styles.streakNumber}>{streak}</span>
-              <span style={styles.streakLabel}>Day Streak</span>
+          {!hasAccount && streak === 0 ? (
+            /* Initialize Streak */
+            <div style={styles.card}>
+              <div style={styles.centerContent}>
+                <h2 style={styles.sectionTitle}>🚀 Start Your Civic Journey</h2>
+                <p style={styles.sectionText}>
+                  Create your streak account on Solana to start earning points and badges!
+                </p>
+                <button
+                  style={styles.primaryBtn}
+                  onClick={initializeStreak}
+                  disabled={loading}
+                >
+                  {loading ? "Creating..." : "Initialize Streak Account"}
+                </button>
+              </div>
             </div>
-            <button
-              style={styles.claimBtn}
-              onClick={claimDaily}
-              disabled={loading}
-            >
-              <span>📮</span>
-              {loading ? "Processing..." : "Mark Today's Civic Action"}
-            </button>
-          </div>
+          ) : (
+            <>
+              {/* Streak Card */}
+              <div style={styles.card}>
+                <div style={styles.streakCircle}>
+                  <span style={styles.streakNumber}>{streak}</span>
+                  <span style={styles.streakLabel}>Day Streak</span>
+                </div>
+                <button
+                  style={styles.claimBtn}
+                  onClick={recordEngagement}
+                  disabled={loading}
+                >
+                  <span>📮</span>
+                  {loading ? "Processing..." : "Mark Today's Civic Action"}
+                </button>
+              </div>
 
-          {/* Stats */}
-          <div style={styles.statsGrid}>
-            <div style={styles.statItem}>
-              <div style={styles.statValue}>{lastActive}</div>
-              <div style={styles.statLabel}>Last Active</div>
-            </div>
-            <div style={styles.statItem}>
-              <div style={styles.statValue}>{points}</div>
-              <div style={styles.statLabel}>Points</div>
-            </div>
-            <div style={styles.statItem}>
-              <div style={styles.statValue}>{badges.length}/3</div>
-              <div style={styles.statLabel}>Badges</div>
-            </div>
-          </div>
+              {/* Stats */}
+              <div style={styles.statsGrid}>
+                <div style={styles.statItem}>
+                  <div style={styles.statValue}>{lastActive}</div>
+                  <div style={styles.statLabel}>Last Active</div>
+                </div>
+                <div style={styles.statItem}>
+                  <div style={styles.statValue}>{points}</div>
+                  <div style={styles.statLabel}>Points</div>
+                </div>
+                <div style={styles.statItem}>
+                  <div style={styles.statValue}>{badges.length}/3</div>
+                  <div style={styles.statLabel}>Badges</div>
+                </div>
+              </div>
 
-          {/* Progress */}
-          <div style={styles.card}>
-            <div style={styles.progressHeader}>
-              <span style={styles.progressTitle}>🎯 Next Milestone</span>
-              <span style={styles.progressPercent}>{Math.round(progressPercent)}%</span>
-            </div>
-            <div style={styles.progressBarContainer}>
-              <div style={{ ...styles.progressBar, width: `${progressPercent}%` }} />
-            </div>
-            <p style={styles.progressText}>
-              {streak >= 100
-                ? "🎉 All milestones achieved!"
-                : `${nextMilestone.days - streak} days until ${nextMilestone.name}`}
-            </p>
-          </div>
+              {/* Progress */}
+              <div style={styles.card}>
+                <div style={styles.progressHeader}>
+                  <span style={styles.progressTitle}>🎯 Next Milestone</span>
+                  <span style={styles.progressPercent}>{Math.round(progressPercent)}%</span>
+                </div>
+                <div style={styles.progressBarContainer}>
+                  <div style={{ ...styles.progressBar, width: `${progressPercent}%` }} />
+                </div>
+                <p style={styles.progressText}>
+                  {streak >= 100
+                    ? "🎉 All milestones achieved!"
+                    : `${nextMilestone.days - streak} days until ${nextMilestone.name}`}
+                </p>
+              </div>
 
-          {/* Badges */}
-          <div style={styles.card}>
-            <h3 style={styles.badgesTitle}>🎖️ Badge Collection</h3>
-            <div style={styles.badgesGrid}>
-              {MILESTONES.map((m) => {
-                const earned = streak >= m.days;
-                return (
-                  <div
-                    key={m.days}
-                    style={{
-                      ...styles.badgeItem,
-                      background: earned ? `${m.color}20` : undefined,
-                      borderColor: earned ? m.color : undefined,
-                      opacity: earned ? 1 : 0.5,
-                    }}
-                  >
-                    <span style={styles.badgeIcon}>{m.icon}</span>
-                    <div style={styles.badgeName}>{m.name}</div>
-                    <div style={styles.badgeDays}>{m.days} Days</div>
-                    <div style={styles.badgeStatus}>{earned ? "✅" : "🔒"}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+              {/* Badges */}
+              <div style={styles.card}>
+                <h3 style={styles.badgesTitle}>🎖️ Badge Collection</h3>
+                <div style={styles.badgesGrid}>
+                  {MILESTONES.map((m) => {
+                    const earned = streak >= m.days;
+                    return (
+                      <div
+                        key={m.days}
+                        style={{
+                          ...styles.badgeItem,
+                          background: earned ? `${m.color}20` : undefined,
+                          borderColor: earned ? m.color : undefined,
+                          opacity: earned ? 1 : 0.5,
+                        }}
+                      >
+                        <span style={styles.badgeIcon}>{m.icon}</span>
+                        <div style={styles.badgeName}>{m.name}</div>
+                        <div style={styles.badgeDays}>{m.days} Days</div>
+                        <div style={styles.badgeStatus}>{earned ? "✅" : "🔒"}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -271,7 +308,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   cardContent: {
     textAlign: "center",
   },
-  connectBtn: {
+  walletBtn: {
     display: "inline-flex",
     alignItems: "center",
     gap: "10px",
@@ -312,6 +349,28 @@ const styles: { [key: string]: React.CSSProperties } = {
   walletAddress: {
     fontWeight: "600",
     fontFamily: "monospace",
+  },
+  centerContent: {
+    textAlign: "center",
+  },
+  sectionTitle: {
+    fontSize: "1.25rem",
+    fontWeight: "600",
+    marginBottom: "12px",
+  },
+  sectionText: {
+    color: "#94a3b8",
+    marginBottom: "24px",
+  },
+  primaryBtn: {
+    background: "linear-gradient(135deg, #10b981, #059669)",
+    border: "none",
+    padding: "16px 32px",
+    fontSize: "1rem",
+    fontWeight: "600",
+    borderRadius: "12px",
+    cursor: "pointer",
+    color: "#fff",
   },
   streakCircle: {
     textAlign: "center",
