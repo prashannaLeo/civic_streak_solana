@@ -20,6 +20,8 @@ export const StreakComponent: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
   const [hasAccount, setHasAccount] = useState(false);
+  const [canClaimToday, setCanClaimToday] = useState(true);
+  const [hoursUntilNextClaim, setHoursUntilNextClaim] = useState(0);
 
   // Load state from localStorage on mount
   useEffect(() => {
@@ -31,6 +33,13 @@ export const StreakComponent: React.FC = () => {
       setBadges(data.badges || []);
       if (data.lastActive) {
         setLastActive(new Date(data.lastActive).toLocaleDateString());
+      }
+      if (data.lastClaim) {
+        const hoursSinceClaim = (Date.now() - new Date(data.lastClaim).getTime()) / (1000 * 60 * 60);
+        if (hoursSinceClaim < 24) {
+          setCanClaimToday(false);
+          setHoursUntilNextClaim(Math.ceil(24 - hoursSinceClaim));
+        }
       }
     }
   }, []);
@@ -44,9 +53,30 @@ export const StreakComponent: React.FC = () => {
         points: newPoints,
         badges: newBadges,
         lastActive: new Date().toISOString(),
+        lastClaim: new Date().toISOString(),
       })
     );
+    
+    // Disable next claim for 24 hours
+    setCanClaimToday(false);
+    setHoursUntilNextClaim(24);
   };
+
+  // Countdown timer for next claim
+  useEffect(() => {
+    if (!canClaimToday && hoursUntilNextClaim > 0) {
+      const interval = setInterval(() => {
+        setHoursUntilNextClaim((prev) => {
+          if (prev <= 1) {
+            setCanClaimToday(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 60 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [canClaimToday, hoursUntilNextClaim]);
 
   const showMessage = (text: string, type: "success" | "error" | "info") => {
     setMessage({ text, type });
@@ -176,12 +206,20 @@ export const StreakComponent: React.FC = () => {
                   <span style={styles.streakLabel}>Day Streak</span>
                 </div>
                 <button
-                  style={styles.claimBtn}
+                  style={{
+                    ...styles.claimBtn,
+                    opacity: canClaimToday ? 1 : 0.5,
+                    cursor: canClaimToday ? 'pointer' : 'not-allowed',
+                  }}
                   onClick={recordEngagement}
-                  disabled={loading}
+                  disabled={loading || !canClaimToday}
                 >
-                  <span>📮</span>
-                  {loading ? "Processing..." : "Mark Today's Civic Action"}
+                  <span>{canClaimToday ? '📮' : '⏰'}</span>
+                  {loading
+                    ? 'Processing...'
+                    : canClaimToday
+                    ? "Mark Today's Civic Action"
+                    : `Come back in ${hoursUntilNextClaim}h`}
                 </button>
               </div>
 
