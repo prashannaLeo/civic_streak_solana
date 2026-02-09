@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { AnchorProvider } from "@coral-xyz/anchor";
+import { PublicKey, Connection, Transaction, SystemProgram } from "@solana/web3.js";
 
 // Milestone configuration
 const MILESTONES = [
@@ -9,143 +11,187 @@ const MILESTONES = [
   { days: 100, name: "Champion", icon: "👑", color: "#a78bfa" },
 ];
 
+// Program ID from environment
+const PROGRAM_ID = new PublicKey(import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID || "FYFvnLGz2FJstEDp8dvXMkUiRsEu4z14HwM1vP2Mdag9");
+
+// Helper to get streak PDA
+const getUserStreakPDA = (userPublicKey: PublicKey) => {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("streak"), userPublicKey.toBuffer()],
+    PROGRAM_ID
+  );
+  return pda;
+};
+
+// Interface for streak data (matches on-chain structure)
+interface UserStreakData {
+  user: string;
+  streakCount: number;
+  lastInteractionTs: number;
+  createdTs: number;
+  milestoneClaimed: number;
+}
+
 export const StreakComponent: React.FC = () => {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, sendTransaction } = useWallet();
   const { connection } = useConnection();
   
-  const [streak, setStreak] = useState(0);
-  const [points, setPoints] = useState(0);
-  const [badges, setBadges] = useState<number[]>([]);
-  const [lastActive, setLastActive] = useState<string>("--");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [streakData, setStreakData] = useState<UserStreakData | null>(null);
   const [hasAccount, setHasAccount] = useState(false);
-  const [canClaimToday, setCanClaimToday] = useState(true);
-  const [hoursUntilNextClaim, setHoursUntilNextClaim] = useState(0);
+  const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
-  // Load state from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem("civicStreak");
-    if (saved) {
-      const data = JSON.parse(saved);
-      setStreak(data.streak || 0);
-      setPoints(data.points || 0);
-      setBadges(data.badges || []);
-      if (data.lastActive) {
-        setLastActive(new Date(data.lastActive).toLocaleDateString());
-      }
-      if (data.lastClaim) {
-        const hoursSinceClaim = (Date.now() - new Date(data.lastClaim).getTime()) / (1000 * 60 * 60);
-        if (hoursSinceClaim < 24) {
-          setCanClaimToday(false);
-          setHoursUntilNextClaim(Math.ceil(24 - hoursSinceClaim));
-        }
-      }
-    }
-  }, []);
-
-  // Save state to localStorage
-  const saveState = (newStreak: number, newPoints: number, newBadges: number[]) => {
-    localStorage.setItem(
-      "civicStreak",
-      JSON.stringify({
-        streak: newStreak,
-        points: newPoints,
-        badges: newBadges,
-        lastActive: new Date().toISOString(),
-        lastClaim: new Date().toISOString(),
-      })
+  // Get provider
+  const getProvider = useCallback(() => {
+    return new AnchorProvider(
+      connection,
+      { publicKey: publicKey || undefined, signTransaction: sendTransaction || undefined } as any,
+      { commitment: "confirmed" }
     );
-    
-    // Disable next claim for 24 hours
-    setCanClaimToday(false);
-    setHoursUntilNextClaim(24);
-  };
+  }, [connection, publicKey, sendTransaction]);
 
-  // Countdown timer for next claim
-  useEffect(() => {
-    if (!canClaimToday && hoursUntilNextClaim > 0) {
-      const interval = setInterval(() => {
-        setHoursUntilNextClaim((prev) => {
-          if (prev <= 1) {
-            setCanClaimToday(true);
-            return 0;
-          }
-          return prev - 1;
+  // Fetch streak data from blockchain
+  const fetchStreakData = useCallback(async () => {
+    if (!publicKey) return;
+
+    try {
+      const streakPDA = getUserStreakPDA(publicKey);
+      
+      // Try to fetch account data
+      const accountInfo = await connection.getAccountInfo(streakPDA);
+      
+      if (accountInfo && accountInfo.data.length > 0) {
+        const data = accountInfo.data;
+        // Parse the account data (based on Anchor's borsh serialization)
+        // Offset: 8 bytes discriminator + 32 bytes user pubkey
+        const streakCount = Number(data.slice(40, 48).readBigUInt64LE());
+        const lastInteractionTs = Number(data.slice(48, 56).readBigInt64LE());
+        const createdTs = Number(data.slice(56, 64).readBigInt64LE());
+        const milestoneClaimed = data[64];
+        
+        setStreakData({
+          user: publicKey.toString(),
+          streakCount,
+          lastInteractionTs,
+          createdTs,
+          milestoneClaimed,
         });
-      }, 60 * 60 * 1000);
-      return () => clearInterval(interval);
+        setHasAccount(true);
+      } else {
+        setStreakData(null);
+        setHasAccount(false);
+      }
+      setError(null);
+    } catch (err) {
+      console.error("Error fetching streak:", err);
+      setError("Failed to fetch streak data from blockchain");
     }
-  }, [canClaimToday, hoursUntilNextClaim]);
+  }, [publicKey, connection]);
 
-  const showMessage = (text: string, type: "success" | "error" | "info") => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage(null), 4000);
-  };
+  // Fetch on mount and when wallet connects
+  useEffect(() => {
+    if (connected && publicKey) {
+      fetchStreakData();
+    }
+  }, [connected, publicKey, fetchStreakData]);
 
   // Initialize streak account on blockchain
   const initializeStreak = async () => {
-    if (!publicKey) {
-      showMessage("Please connect your wallet first!", "error");
+    if (!publicKey || !sendTransaction) {
+      setError("Wallet not connected");
       return;
     }
 
     setLoading(true);
+    setError(null);
+
     try {
-      // For demo, just initialize locally
-      // In production, this would call the Solana program
-      setStreak(1);
-      setLastActive(new Date().toLocaleDateString());
-      setHasAccount(true);
-      saveState(1, points, badges);
+      const streakPDA = getUserStreakPDA(publicKey);
+      
+      // Create account transaction
+      const transaction = new Transaction().add(
+        SystemProgram.createAccount({
+          fromPubkey: publicKey,
+          newAccountPubkey: streakPDA,
+          lamports: await connection.getMinimumBalanceForRentExemption(64),
+          space: 64,
+          programId: PROGRAM_ID,
+        })
+      );
+
+      const signature = await sendTransaction(transaction, connection);
+      await connection.confirmTransaction(signature, "confirmed");
+      
+      await fetchStreakData();
       showMessage("🎉 Streak account created on Solana!", "success");
-    } catch (error) {
-      console.error("Error initializing streak:", error);
-      showMessage("Failed to create streak account", "error");
+    } catch (err: any) {
+      console.error("Error initializing streak:", err);
+      setError(err.message || "Failed to create streak account");
+      showMessage(err.message || "Failed to create streak account", "error");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // Record daily engagement on blockchain
-  const recordEngagement = async () => {
-    if (!publicKey) {
-      showMessage("Please connect your wallet first!", "error");
+  const recordDailyEngagement = async () => {
+    if (!publicKey || !sendTransaction) {
+      setError("Wallet not connected");
       return;
     }
 
     setLoading(true);
-    try {
-      // For demo, just update locally
-      // In production, this would call the Solana program
-      const newStreak = streak + 1;
-      const pointsEarned = Math.min(10 * Math.min(newStreak, 10), 100);
-      const newPoints = points + pointsEarned;
+    setError(null);
 
-      // Check for new badges
-      const newBadges = [...badges];
-      MILESTONES.forEach((m) => {
-        if (newStreak === m.days && !newBadges.includes(m.days)) {
-          newBadges.push(m.days);
-          showMessage(`🎖️ Badge Unlocked: ${m.name}!`, "success");
-        }
+    try {
+      const provider = getProvider();
+      const streakPDA = getUserStreakPDA(publicKey);
+      
+      // Create instruction data
+      const instructionData = Buffer.from([0, 0, 0, 0]); // 4-byte discriminator for record_daily_engagement
+      
+      const transaction = new Transaction().add({
+        keys: [
+          { pubkey: publicKey, isSigner: true, isWritable: true },
+          { pubkey: streakPDA, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_ID,
+        data: instructionData,
       });
 
-      setStreak(newStreak);
-      setPoints(newPoints);
-      setBadges(newBadges);
-      setLastActive(new Date().toLocaleDateString());
-      saveState(newStreak, newPoints, newBadges);
-      showMessage(`🔥 Streak: ${newStreak} days! +${pointsEarned} points!`, "success");
-    } catch (error) {
-      console.error("Error recording engagement:", error);
-      showMessage("Failed to record engagement", "error");
+      const signature = await sendTransaction(transaction, connection);
+      await connection.confirmTransaction(signature, "confirmed");
+      
+      await fetchStreakData();
+      
+      const newStreak = (streakData?.streakCount || 0) + 1;
+      showMessage(`🔥 Streak: ${newStreak} days!`, "success");
+    } catch (err: any) {
+      console.error("Error recording engagement:", err);
+      
+      if (err.message?.includes("already claimed") || err.message?.includes("AlreadyClaimedToday")) {
+        showMessage("⏰ You've already claimed today! Come back tomorrow.", "error");
+      } else {
+        setError(err.message || "Failed to record engagement");
+        showMessage(err.message || "Failed to record engagement", "error");
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const showMessage = (text: string, type: "success" | "error" | "info") => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage(null), 5000);
   };
 
   // Calculate progress
+  const streak = streakData?.streakCount || 0;
   const nextMilestone = MILESTONES.find((m) => streak < m.days) || MILESTONES[MILESTONES.length - 1];
   const progressPercent = Math.min((streak / nextMilestone.days) * 100, 100);
+  const earnedBadges = MILESTONES.filter((m) => streak >= m.days).map((m) => m.days);
 
   return (
     <div style={styles.container}>
@@ -177,16 +223,22 @@ export const StreakComponent: React.FC = () => {
         </div>
       </div>
 
+      {/* Error Message */}
+      {error && (
+        <div style={styles.errorBanner}>
+          ❌ {error}
+        </div>
+      )}
+
       {/* Main Content */}
       {connected && (
         <>
-          {!hasAccount && streak === 0 ? (
-            /* Initialize Streak */
+          {!hasAccount ? (
             <div style={styles.card}>
               <div style={styles.centerContent}>
                 <h2 style={styles.sectionTitle}>🚀 Start Your Civic Journey</h2>
                 <p style={styles.sectionText}>
-                  Create your streak account on Solana to start earning points and badges!
+                  Create your streak account on Solana blockchain to start earning points and badges!
                 </p>
                 <button
                   style={styles.primaryBtn}
@@ -206,36 +258,32 @@ export const StreakComponent: React.FC = () => {
                   <span style={styles.streakLabel}>Day Streak</span>
                 </div>
                 <button
-                  style={{
-                    ...styles.claimBtn,
-                    opacity: canClaimToday ? 1 : 0.5,
-                    cursor: canClaimToday ? 'pointer' : 'not-allowed',
-                  }}
-                  onClick={recordEngagement}
-                  disabled={loading || !canClaimToday}
+                  style={styles.claimBtn}
+                  onClick={recordDailyEngagement}
+                  disabled={loading}
                 >
-                  <span>{canClaimToday ? '📮' : '⏰'}</span>
-                  {loading
-                    ? 'Processing...'
-                    : canClaimToday
-                    ? "Mark Today's Civic Action"
-                    : `Come back in ${hoursUntilNextClaim}h`}
+                  <span>📮</span>
+                  {loading ? "Processing..." : "Mark Today's Civic Action"}
                 </button>
               </div>
 
               {/* Stats */}
               <div style={styles.statsGrid}>
                 <div style={styles.statItem}>
-                  <div style={styles.statValue}>{lastActive}</div>
+                  <div style={styles.statValue}>
+                    {streakData?.lastInteractionTs 
+                      ? new Date(streakData.lastInteractionTs * 1000).toLocaleDateString()
+                      : "--"}
+                  </div>
                   <div style={styles.statLabel}>Last Active</div>
                 </div>
                 <div style={styles.statItem}>
-                  <div style={styles.statValue}>{points}</div>
-                  <div style={styles.statLabel}>Points</div>
+                  <div style={styles.statValue}>{earnedBadges.length}</div>
+                  <div style={styles.statLabel}>Badges</div>
                 </div>
                 <div style={styles.statItem}>
-                  <div style={styles.statValue}>{badges.length}/3</div>
-                  <div style={styles.statLabel}>Badges</div>
+                  <div style={styles.statValue}>{streakData?.milestoneClaimed || 0}</div>
+                  <div style={styles.statLabel}>Milestones</div>
                 </div>
               </div>
 
@@ -287,7 +335,10 @@ export const StreakComponent: React.FC = () => {
 
       {/* Toast */}
       {message && (
-        <div style={{ ...styles.toast, background: message.type === "success" ? "#10b981" : message.type === "error" ? "#ef4444" : "#6366f1" }}>
+        <div style={{ 
+          ...styles.toast, 
+          background: message.type === "success" ? "#10b981" : message.type === "error" ? "#ef4444" : "#6366f1" 
+        }}>
           {message.text}
         </div>
       )}
@@ -295,7 +346,7 @@ export const StreakComponent: React.FC = () => {
       {/* Footer */}
       <footer style={styles.footer}>
         <p>⚡ Powered by Solana Blockchain</p>
-        <p style={styles.disclaimer}>Streaks reset if you miss 48+ hours between actions</p>
+        <p style={styles.disclaimer}>Streaks are stored on-chain and tamper-proof</p>
       </footer>
     </div>
   );
@@ -387,6 +438,15 @@ const styles: { [key: string]: React.CSSProperties } = {
   walletAddress: {
     fontWeight: "600",
     fontFamily: "monospace",
+  },
+  errorBanner: {
+    background: "rgba(239, 68, 68, 0.2)",
+    border: "1px solid #ef4444",
+    borderRadius: "12px",
+    padding: "16px",
+    marginBottom: "16px",
+    color: "#ef4444",
+    textAlign: "center",
   },
   centerContent: {
     textAlign: "center",
