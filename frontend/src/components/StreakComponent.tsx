@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import {
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
+import { Buffer } from "buffer";
+import { sha256 } from "@noble/hashes/sha256";
 
 // Milestone configuration
 const MILESTONES = [
@@ -17,10 +24,15 @@ const PROGRAM_ID = new PublicKey(
     : "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X"
 );
 
-// Hardcoded discriminators (first 8 bytes of SHA256 of instruction names)
-// These are calculated from: sha256("global:initializeUserStreak") and sha256("global:recordDailyEngagement")
-const DISCRIMINATOR_INITIALIZE = Buffer.from([138, 89, 85, 188, 47, 10, 83, 221]);
-const DISCRIMINATOR_RECORD = Buffer.from([42, 22, 137, 51, 156, 75, 134, 226]);
+// Derive instruction discriminators (first 8 bytes of sha256("global:<snake_case_name>"))
+const getIxDiscriminator = (name: string): Buffer => {
+  const preimage = new TextEncoder().encode(`global:${name}`);
+  const hash = sha256.create().update(preimage).digest(); // Uint8Array(32)
+  return Buffer.from(hash.slice(0, 8));
+};
+
+const DISCRIMINATOR_INITIALIZE = getIxDiscriminator("initialize_user_streak");
+const DISCRIMINATOR_RECORD = getIxDiscriminator("record_daily_engagement");
 
 // Helper to get streak PDA
 const getUserStreakPDA = (userPublicKey: PublicKey) => {
@@ -91,13 +103,13 @@ export const StreakComponent: React.FC = () => {
     }
   }, [connected, publicKey, fetchStreakData]);
 
-  // Create instruction with correct accounts
+  // Build instruction for this program with correct accounts + discriminator
   const createInstruction = (
     userPubkey: PublicKey,
     discriminator: Buffer
   ): TransactionInstruction => {
     const streakPDA = getUserStreakPDA(userPubkey);
-    
+
     return new TransactionInstruction({
       keys: [
         { pubkey: userPubkey, isSigner: true, isWritable: true },
@@ -123,7 +135,6 @@ export const StreakComponent: React.FC = () => {
       console.log("=== DEBUG ===");
       console.log("Program ID:", PROGRAM_ID.toString());
       console.log("User:", publicKey.toString());
-      console.log("Discriminator (hex):", DISCRIMINATOR_INITIALIZE.toString('hex'));
 
       // Check if program exists
       const programAccount = await connection.getAccountInfo(PROGRAM_ID);
@@ -131,26 +142,36 @@ export const StreakComponent: React.FC = () => {
         throw new Error("Program not deployed at " + PROGRAM_ID.toString());
       }
 
-      // Create transaction
+      const streakPDA = getUserStreakPDA(publicKey);
+
+      // Check if account already exists
+      const existingAccount = await connection.getAccountInfo(streakPDA);
+      if (existingAccount) {
+        console.log("Account already exists!");
+        setHasAccount(true);
+        await fetchStreakData();
+        showMessage("📊 Streak account already exists!", "info");
+        setLoading(false);
+        return;
+      }
+
+      // Build and send raw transaction using correct discriminator
       const instruction = createInstruction(publicKey, DISCRIMINATOR_INITIALIZE);
       const transaction = new Transaction().add(instruction);
 
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
       console.log("Sending transaction...");
-
       const signature = await sendTransaction(transaction, connection);
       console.log("Signature:", signature);
 
-      await connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight
-      }, 'confirmed');
-
-      console.log("Confirmed!");
+      await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed"
+      );
 
       await fetchStreakData();
       showMessage("🎉 Streak account created!", "success");
@@ -177,16 +198,16 @@ export const StreakComponent: React.FC = () => {
       const instruction = createInstruction(publicKey, DISCRIMINATOR_RECORD);
       const transaction = new Transaction().add(instruction);
 
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
       const signature = await sendTransaction(transaction, connection);
-      await connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight
-      }, 'confirmed');
+      await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed"
+      );
       
       await fetchStreakData();
       

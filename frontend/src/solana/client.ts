@@ -30,7 +30,9 @@ export const getProvider = (connection: Connection, wallet: any) => {
 
 // Get the program instance
 export const getProgram = (provider: AnchorProvider) => {
-  return new Program(IDL as any, PROGRAM_ID, provider);
+  // Avoid mixed PublicKey-class issues by passing programId as a base58 string.
+  // @ts-ignore - Program constructor accepts (idl, programId, provider)
+  return new Program(IDL as any, PROGRAM_ID.toString(), provider as any);
 };
 
 // Helper function to find user streak PDA
@@ -40,6 +42,34 @@ export const getUserStreakPDA = (userPublicKey: PublicKey) => {
     PROGRAM_ID
   );
   return pda;
+};
+
+// Calculate instruction discriminator
+export const getInstructionDiscriminator = async (instructionName: string): Promise<Uint8Array> => {
+  const message = "global:" + instructionName;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const discriminator = new Uint8Array(hashBuffer.slice(0, 8));
+  console.log(`Discriminator for ${instructionName}: ${Buffer.from(discriminator).toString('hex')}`);
+  return discriminator;
+};
+
+// Verify program ID matches
+export const verifyProgramSetup = async (connection: Connection) => {
+  try {
+    const programAccount = await connection.getAccountInfo(PROGRAM_ID);
+    if (!programAccount) {
+      console.error(`Program not found at: ${PROGRAM_ID.toString()}`);
+      return { success: false, error: "Program not deployed" };
+    }
+    console.log(`Program found at: ${PROGRAM_ID.toString()}`);
+    console.log(`Program owner: ${programAccount.owner.toString()}`);
+    return { success: true, programAccount };
+  } catch (error) {
+    console.error("Error verifying program:", error);
+    return { success: false, error };
+  }
 };
 
 // Initialize user streak
@@ -88,6 +118,7 @@ export const getUserStreak = async (
   const streakAccount = getUserStreakPDA(user);
   
   try {
+    // @ts-ignore - account.userStreak exists at runtime
     const account = await program.account.userStreak.fetch(streakAccount);
     return {
       user: account.user.toString(),
@@ -101,3 +132,6 @@ export const getUserStreak = async (
     return null;
   }
 };
+
+// Export PROGRAM_ID for use in other files
+export { PROGRAM_ID };

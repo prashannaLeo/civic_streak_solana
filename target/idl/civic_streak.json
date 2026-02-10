@@ -1,106 +1,106 @@
 {
-  "version": "0.1.0",
-  "name": "civic_streak",
-  "instructions": [
-    {
-      "name": "initializeUserStreak",
-      "accounts": [
+    "version": "0.1.0",
+    "name": "civic_streak",
+    "instructions": [
         {
-          "name": "user",
-          "isMut": true,
-          "isSigner": true
+            "name": "initializeUserStreak",
+            "accounts": [
+                {
+                    "name": "user",
+                    "isMut": true,
+                    "isSigner": true
+                },
+                {
+                    "name": "userStreak",
+                    "isMut": true,
+                    "isSigner": false
+                },
+                {
+                    "name": "systemProgram",
+                    "isMut": false,
+                    "isSigner": false
+                }
+            ],
+            "args": []
         },
         {
-          "name": "userStreak",
-          "isMut": true,
-          "isSigner": false
+            "name": "recordDailyEngagement",
+            "accounts": [
+                {
+                    "name": "user",
+                    "isMut": true,
+                    "isSigner": true
+                },
+                {
+                    "name": "userStreak",
+                    "isMut": true,
+                    "isSigner": false
+                },
+                {
+                    "name": "systemProgram",
+                    "isMut": false,
+                    "isSigner": false
+                }
+            ],
+            "args": []
         },
         {
-          "name": "systemProgram",
-          "isMut": false,
-          "isSigner": false
+            "name": "getUserStreak",
+            "accounts": [
+                {
+                    "name": "user",
+                    "isMut": false,
+                    "isSigner": true
+                },
+                {
+                    "name": "userStreak",
+                    "isMut": false,
+                    "isSigner": false
+                }
+            ],
+            "args": []
         }
-      ],
-      "args": []
-    },
-    {
-      "name": "recordDailyEngagement",
-      "accounts": [
+    ],
+    "accounts": [
         {
-          "name": "user",
-          "isMut": true,
-          "isSigner": true
-        },
-        {
-          "name": "userStreak",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "systemProgram",
-          "isMut": false,
-          "isSigner": false
+            "name": "UserStreak",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "user",
+                        "type": "publicKey"
+                    },
+                    {
+                        "name": "streakCount",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "lastInteractionTs",
+                        "type": "i64"
+                    },
+                    {
+                        "name": "createdTs",
+                        "type": "i64"
+                    },
+                    {
+                        "name": "milestoneClaimed",
+                        "type": "u8"
+                    }
+                ]
+            }
         }
-      ],
-      "args": []
-    },
-    {
-      "name": "getUserStreak",
-      "accounts": [
+    ],
+    "errors": [
         {
-          "name": "user",
-          "isMut": false,
-          "isSigner": true
+            "code": 6000,
+            "name": "AlreadyClaimedToday",
+            "msg": "You have already claimed your civic action for today. Come back tomorrow!"
         },
         {
-          "name": "userStreak",
-          "isMut": false,
-          "isSigner": false
+            "code": 6001,
+            "name": "StreakExpired",
+            "msg": "Your streak has expired. Start a new streak today!"
         }
-      ],
-      "args": []
-    }
-  ],
-  "accounts": [
-    {
-      "name": "UserStreak",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "user",
-            "type": "publicKey"
-          },
-          {
-            "name": "streakCount",
-            "type": "u64"
-          },
-          {
-            "name": "lastInteractionTs",
-            "type": "i64"
-          },
-          {
-            "name": "createdTs",
-            "type": "i64"
-          },
-          {
-            "name": "milestoneClaimed",
-            "type": "u8"
-          }
-        ]
-      }
-    }
-  ],
-  "errors": [
-    {
-      "code": 6000,
-      "name": "AlreadyClaimedToday",
-      "msg": "You have already claimed your civic action for today. Come back tomorrow!"
-    },
-    {
-      "code": 6001,
-      "name": "StreakExpired",
-      "msg": "Your streak has expired. Start a new streak today!"
-    }
-  ]
+    ]
 }
