@@ -435,6 +435,38 @@ solana program show <PROGRAM_ID>
 
 ---
 
+## 🌐 GitHub Pages Deployment
+
+The frontend is automatically deployed to GitHub Pages via GitHub Actions.
+
+### Setup GitHub Pages
+
+1. Go to your GitHub repository
+2. Navigate to **Settings** → **Pages**
+3. Under "Build and deployment", select **Source** as **GitHub Actions**
+
+### Manual Deployment
+
+To deploy the frontend manually:
+
+```bash
+cd frontend
+npm install
+npm run build
+
+# Deploy the dist folder to gh-pages branch
+npx gh-pages -d dist
+```
+
+### Access the App
+
+Once deployed, access your app at:
+```
+https://<username>.github.io/civic_streak_solana/
+```
+
+---
+
 ## 💰 SPL Token Setup
 
 ### Create Token
