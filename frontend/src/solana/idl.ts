@@ -1,4 +1,6 @@
 // IDL for Civic Streak Anchor Program (Anchor 0.32.x format)
+import { Program } from "@coral-xyz/anchor";
+
 export const civicStreakIdl = {
   version: "0.1.0",
   name: "civic_streak",

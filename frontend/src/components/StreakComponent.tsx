@@ -1,14 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useWallet, useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import {
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  TransactionInstruction,
-} from "@solana/web3.js";
-import { Buffer } from "buffer";
-import { sha256 } from "@noble/hashes/sha256";
+import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
+import * as anchor from "@coral-xyz/anchor";
+import { civicStreakIdl } from "../solana/idl";
 
 // Milestone configuration
 const MILESTONES = [
@@ -24,25 +19,6 @@ const PROGRAM_ID = new PublicKey(
     : "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X"
 );
 
-// Derive instruction discriminators (first 8 bytes of sha256("global:<snake_case_name>"))
-const getIxDiscriminator = (name: string): Buffer => {
-  const preimage = new TextEncoder().encode(`global:${name}`);
-  const hash = sha256.create().update(preimage).digest(); // Uint8Array(32)
-  return Buffer.from(hash.slice(0, 8));
-};
-
-const DISCRIMINATOR_INITIALIZE = getIxDiscriminator("initialize_user_streak");
-const DISCRIMINATOR_RECORD = getIxDiscriminator("record_daily_engagement");
-
-// Helper to get streak PDA
-const getUserStreakPDA = (userPublicKey: PublicKey) => {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("streak"), userPublicKey.toBuffer()],
-    PROGRAM_ID
-  );
-  return pda;
-};
-
 // Interface for streak data
 interface UserStreakData {
   user: string;
@@ -55,12 +31,28 @@ interface UserStreakData {
 export const StreakComponent: React.FC = () => {
   const { publicKey, connected, disconnect, disconnecting, sendTransaction } = useWallet();
   const { connection } = useConnection();
-  
+  const anchorWallet = useAnchorWallet();
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streakData, setStreakData] = useState<UserStreakData | null>(null);
   const [hasAccount, setHasAccount] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  // Get PDA
+  const getUserStreakPDA = useCallback((userPublicKey: PublicKey) => {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("streak"), userPublicKey.toBuffer()],
+      PROGRAM_ID
+    );
+    return pda;
+  }, []);
+
+  // Show message
+  const showMessage = (text: string, type: "success" | "error" | "info") => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage(null), 5000);
+  };
 
   // Fetch streak data from blockchain
   const fetchStreakData = useCallback(async () => {
@@ -69,17 +61,17 @@ export const StreakComponent: React.FC = () => {
     try {
       const streakPDA = getUserStreakPDA(publicKey);
       const accountInfo = await connection.getAccountInfo(streakPDA);
-      
-      if (accountInfo && accountInfo.data.length > 0) {
+
+      if (accountInfo) {
+        // Decode account data (first 8 bytes are discriminator)
         const data = accountInfo.data;
-        const user = new PublicKey(data.slice(0, 32)).toString();
-        const streakCount = Number(data.slice(32, 40).readBigUInt64LE());
-        const lastInteractionTs = Number(data.slice(40, 48).readBigInt64LE());
-        const createdTs = Number(data.slice(48, 56).readBigInt64LE());
-        const milestoneClaimed = data[56];
-        
+        const streakCount = Number(data.readBigUInt64LE(8));
+        const lastInteractionTs = Number(data.readBigInt64LE(16));
+        const createdTs = Number(data.readBigInt64LE(24));
+        const milestoneClaimed = Number(data.readBigUInt64LE(32));
+
         setStreakData({
-          user,
+          user: publicKey.toString(),
           streakCount,
           lastInteractionTs,
           createdTs,
@@ -95,35 +87,18 @@ export const StreakComponent: React.FC = () => {
       console.error("Error fetching streak:", err);
       setError("Failed to fetch streak data from blockchain");
     }
-  }, [publicKey, connection]);
+  }, [publicKey, connection, getUserStreakPDA]);
 
+  // Auto-fetch when wallet connects
   useEffect(() => {
     if (connected && publicKey) {
       fetchStreakData();
     }
   }, [connected, publicKey, fetchStreakData]);
 
-  // Build instruction for this program with correct accounts + discriminator
-  const createInstruction = (
-    userPubkey: PublicKey,
-    discriminator: Buffer
-  ): TransactionInstruction => {
-    const streakPDA = getUserStreakPDA(userPubkey);
-
-    return new TransactionInstruction({
-      keys: [
-        { pubkey: userPubkey, isSigner: true, isWritable: true },
-        { pubkey: streakPDA, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      programId: PROGRAM_ID,
-      data: discriminator,
-    });
-  };
-
   // Initialize streak account
   const initializeStreak = async () => {
-    if (!publicKey || !sendTransaction) {
+    if (!publicKey || !anchorWallet) {
       setError("Wallet not connected");
       return;
     }
@@ -132,16 +107,6 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      console.log("=== DEBUG ===");
-      console.log("Program ID:", PROGRAM_ID.toString());
-      console.log("User:", publicKey.toString());
-
-      // Check if program exists
-      const programAccount = await connection.getAccountInfo(PROGRAM_ID);
-      if (!programAccount) {
-        throw new Error("Program not deployed at " + PROGRAM_ID.toString());
-      }
-
       const streakPDA = getUserStreakPDA(publicKey);
 
       // Check if account already exists
@@ -155,23 +120,31 @@ export const StreakComponent: React.FC = () => {
         return;
       }
 
-      // Build and send raw transaction using correct discriminator
-      const instruction = createInstruction(publicKey, DISCRIMINATOR_INITIALIZE);
-      const transaction = new Transaction().add(instruction);
+      // Use Anchor's program methods
+      const provider = new anchor.AnchorProvider(
+        connection,
+        anchorWallet as any,
+        { commitment: "confirmed" }
+      );
 
-      const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash("confirmed");
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
+      const programIdKey = new anchor.web3.PublicKey(PROGRAM_ID.toString());
+      const program = new (anchor.Program as any)(civicStreakIdl, programIdKey, provider);
 
-      console.log("Sending transaction...");
-      const signature = await sendTransaction(transaction, connection);
+      console.log("Sending initializeUserStreak transaction...");
+
+      const signature = await program.methods
+        .initializeUserStreak()
+        .accounts({
+          user: publicKey,
+          userStreak: streakPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+
       console.log("Signature:", signature);
 
-      await connection.confirmTransaction(
-        { signature, blockhash, lastValidBlockHeight },
-        "confirmed"
-      );
+      // Wait for confirmation
+      await connection.confirmTransaction(signature, "confirmed");
 
       await fetchStreakData();
       showMessage("🎉 Streak account created!", "success");
@@ -186,7 +159,7 @@ export const StreakComponent: React.FC = () => {
 
   // Record daily engagement
   const recordDailyEngagement = async () => {
-    if (!publicKey || !sendTransaction) {
+    if (!publicKey || !anchorWallet) {
       setError("Wallet not connected");
       return;
     }
@@ -195,27 +168,40 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const instruction = createInstruction(publicKey, DISCRIMINATOR_RECORD);
-      const transaction = new Transaction().add(instruction);
+      const streakPDA = getUserStreakPDA(publicKey);
 
-      const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash("confirmed");
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      const signature = await sendTransaction(transaction, connection);
-      await connection.confirmTransaction(
-        { signature, blockhash, lastValidBlockHeight },
-        "confirmed"
+      // Use Anchor's program methods
+      const provider = new anchor.AnchorProvider(
+        connection,
+        anchorWallet as any,
+        { commitment: "confirmed" }
       );
-      
+
+      const programIdKey = new anchor.web3.PublicKey(PROGRAM_ID.toString());
+      const program = new (anchor.Program as any)(civicStreakIdl, programIdKey, provider);
+
+      console.log("Sending recordDailyEngagement transaction...");
+
+      const signature = await program.methods
+        .recordDailyEngagement()
+        .accounts({
+          user: publicKey,
+          userStreak: streakPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      console.log("Signature:", signature);
+
+      await connection.confirmTransaction(signature, "confirmed");
+
       await fetchStreakData();
-      
+
       const newStreak = (streakData?.streakCount || 0) + 1;
       showMessage(`🔥 Streak: ${newStreak} days!`, "success");
     } catch (err: any) {
       console.error("Error:", err);
-      
+
       if (err.message?.includes("already claimed")) {
         showMessage("⏰ You've already claimed today!", "error");
       } else {
@@ -225,11 +211,6 @@ export const StreakComponent: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const showMessage = (text: string, type: "success" | "error" | "info") => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage(null), 5000);
   };
 
   const streak = streakData?.streakCount || 0;
@@ -308,68 +289,61 @@ export const StreakComponent: React.FC = () => {
                   onClick={recordDailyEngagement}
                   disabled={loading}
                 >
-                  <span>📮</span>
-                  {loading ? "Processing..." : "Mark Today's Civic Action"}
+                  {loading ? "Processing..." : "📅 Mark Today's Civic Action"}
                 </button>
               </div>
 
+              {/* Stats */}
               <div style={styles.statsGrid}>
                 <div style={styles.statItem}>
-                  <div style={styles.statValue}>
-                    {streakData?.lastInteractionTs 
-                      ? new Date(streakData.lastInteractionTs * 1000).toLocaleDateString()
-                      : "--"}
-                  </div>
-                  <div style={styles.statLabel}>Last Active</div>
+                  <div style={styles.statValue}>{streak}</div>
+                  <div style={styles.statLabel}>Current Streak</div>
+                </div>
+                <div style={styles.statItem}>
+                  <div style={styles.statValue}>{nextMilestone.days - streak}</div>
+                  <div style={styles.statLabel}>Days to Next</div>
                 </div>
                 <div style={styles.statItem}>
                   <div style={styles.statValue}>{earnedBadges.length}</div>
-                  <div style={styles.statLabel}>Badges</div>
-                </div>
-                <div style={styles.statItem}>
-                  <div style={styles.statValue}>{streakData?.milestoneClaimed || 0}</div>
-                  <div style={styles.statLabel}>Milestones</div>
+                  <div style={styles.statLabel}>Badges Earned</div>
                 </div>
               </div>
 
+              {/* Progress to next milestone */}
               <div style={styles.card}>
                 <div style={styles.progressHeader}>
-                  <span style={styles.progressTitle}>🎯 Next Milestone</span>
-                  <span style={styles.progressPercent}>{Math.round(progressPercent)}%</span>
+                  <span style={styles.progressTitle}>Progress to {nextMilestone.name}</span>
+                  <span style={styles.progressPercent}>{progressPercent.toFixed(1)}%</span>
                 </div>
                 <div style={styles.progressBarContainer}>
                   <div style={{ ...styles.progressBar, width: `${progressPercent}%` }} />
                 </div>
-                <p style={styles.progressText}>
-                  {streak >= 100
-                    ? "🎉 All milestones achieved!"
-                    : `${nextMilestone.days - streak} days until ${nextMilestone.name}`}
-                </p>
+                <p style={styles.progressText}>{streak} / {nextMilestone.days} days</p>
               </div>
 
-              <div style={styles.card}>
-                <h3 style={styles.badgesTitle}>🎖️ Badge Collection</h3>
-                <div style={styles.badgesGrid}>
-                  {MILESTONES.map((m) => {
-                    const earned = streak >= m.days;
-                    return (
-                      <div
-                        key={m.days}
-                        style={{
-                          ...styles.badgeItem,
-                          background: earned ? `${m.color}20` : undefined,
-                          borderColor: earned ? m.color : undefined,
-                          opacity: earned ? 1 : 0.5,
-                        }}
-                      >
-                        <span style={styles.badgeIcon}>{m.icon}</span>
-                        <div style={styles.badgeName}>{m.name}</div>
-                        <div style={styles.badgeDays}>{m.days} Days</div>
-                        <div style={styles.badgeStatus}>{earned ? "✅" : "🔒"}</div>
+              {/* Milestones / Badges */}
+              <h3 style={styles.badgesTitle}>🏆 Milestone Badges</h3>
+              <div style={styles.badgesGrid}>
+                {MILESTONES.map((m) => {
+                  const earned = streak >= m.days;
+                  return (
+                    <div
+                      key={m.days}
+                      style={{
+                        ...styles.badgeItem,
+                        borderColor: earned ? m.color : "#334155",
+                        opacity: earned ? 1 : 0.5,
+                      }}
+                    >
+                      <span style={styles.badgeIcon}>{earned ? m.icon : "🔒"}</span>
+                      <div style={styles.badgeName}>{m.name}</div>
+                      <div style={styles.badgeDays}>{m.days} days</div>
+                      <div style={styles.badgeStatus}>
+                        {earned ? "✅ Earned" : "🔒 Locked"}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
@@ -377,9 +351,9 @@ export const StreakComponent: React.FC = () => {
       )}
 
       {message && (
-        <div style={{ 
-          ...styles.toast, 
-          background: message.type === "success" ? "#10b981" : message.type === "error" ? "#ef4444" : "#6366f1" 
+        <div style={{
+          ...styles.toast,
+          background: message.type === "success" ? "#10b981" : message.type === "error" ? "#ef4444" : "#6366f1"
         }}>
           {message.text}
         </div>
@@ -422,145 +396,39 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginBottom: "16px",
   },
   cardContent: { textAlign: "center" },
-  walletBtn: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "10px",
-    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-    border: "none",
-    padding: "14px 32px",
-    fontSize: "1rem",
-    fontWeight: "600",
-    borderRadius: "12px",
-    cursor: "pointer",
-    color: "#fff",
-  },
-  connectedInfo: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "12px",
-    padding: "16px",
-    background: "rgba(16, 185, 129, 0.1)",
-    border: "1px solid rgba(16, 185, 129, 0.3)",
-    borderRadius: "12px",
-  },
-  disconnectBtn: {
-    background: "rgba(239, 68, 68, 0.2)",
-    border: "1px solid rgba(239, 68, 68, 0.4)",
-    padding: "8px 12px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "1.2rem",
-  },
-  walletIcon: {
-    width: "40px",
-    height: "40px",
-    background: "#10b981",
-    borderRadius: "50%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "18px",
-  },
-  walletLabel: { fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" },
-  walletAddress: { fontWeight: "600", fontFamily: "monospace" },
-  errorBanner: {
-    background: "rgba(239, 68, 68, 0.2)",
-    border: "1px solid #ef4444",
-    borderRadius: "12px",
-    padding: "16px",
-    marginBottom: "16px",
-    color: "#ef4444",
-    textAlign: "center",
-  },
+  connectedInfo: { display: "flex", alignItems: "center", gap: "12px" },
+  walletIcon: { fontSize: "24px" },
+  walletLabel: { fontSize: "0.85rem", color: "#94a3b8" },
+  walletAddress: { fontFamily: "monospace", fontSize: "0.9rem" },
+  disconnectBtn: { padding: "8px 12px", background: "transparent", border: "1px solid #334155", borderRadius: "8px", cursor: "pointer", fontSize: "16px" },
+  errorBanner: { background: "#7f1d1d", border: "1px solid #ef4444", borderRadius: "12px", padding: "16px", marginBottom: "16px", color: "#fecaca" },
   centerContent: { textAlign: "center" },
-  sectionTitle: { fontSize: "1.25rem", fontWeight: "600", marginBottom: "12px" },
+  sectionTitle: { fontSize: "1.5rem", fontWeight: "700", marginBottom: "12px", color: "#f8fafc" },
   sectionText: { color: "#94a3b8", marginBottom: "24px" },
-  primaryBtn: {
-    background: "linear-gradient(135deg, #10b981, #059669)",
-    border: "none",
-    padding: "16px 32px",
-    fontSize: "1rem",
-    fontWeight: "600",
-    borderRadius: "12px",
-    cursor: "pointer",
-    color: "#fff",
-  },
-  streakCircle: { textAlign: "center", padding: "20px 0", marginBottom: "20px" },
-  streakNumber: { display: "block", fontSize: "4rem", fontWeight: "800", color: "#f8fafc" },
-  streakLabel: { color: "#94a3b8", fontSize: "1rem" },
-  claimBtn: {
-    width: "100%",
-    padding: "16px 24px",
-    fontSize: "1.1rem",
-    fontWeight: "600",
-    border: "none",
-    borderRadius: "12px",
-    cursor: "pointer",
-    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-    color: "#fff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "10px",
-  },
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "12px",
-    marginBottom: "16px",
-  },
-  statItem: {
-    textAlign: "center",
-    padding: "16px 12px",
-    background: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: "12px",
-  },
-  statValue: { fontSize: "1.5rem", fontWeight: "700", color: "#818cf8" },
-  statLabel: { fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", marginTop: "4px" },
-  progressHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" },
-  progressTitle: { fontWeight: "600", fontSize: "1rem" },
-  progressPercent: { fontWeight: "700", color: "#818cf8" },
-  progressBarContainer: { height: "12px", background: "#334155", borderRadius: "6px", overflow: "hidden", marginBottom: "12px" },
-  progressBar: {
-    height: "100%",
-    background: "linear-gradient(90deg, #6366f1, #10b981)",
-    borderRadius: "6px",
-    transition: "width 0.5s ease",
-  },
-  progressText: { textAlign: "center", fontSize: "0.85rem", color: "#94a3b8" },
-  badgesTitle: { fontSize: "1.1rem", fontWeight: "600", marginBottom: "20px" },
+  primaryBtn: { background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", border: "none", borderRadius: "12px", padding: "16px 32px", fontSize: "1.1rem", fontWeight: "600", cursor: "pointer", width: "100%" },
+  streakCircle: { textAlign: "center", padding: "20px 0" },
+  streakNumber: { fontSize: "4rem", fontWeight: "800", display: "block", background: "linear-gradient(135deg, #fbbf24, #f59e0b)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  streakLabel: { fontSize: "1rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "2px" },
+  claimBtn: { background: "linear-gradient(135deg, #10b981, #059669)", color: "white", border: "none", borderRadius: "12px", padding: "16px 24px", fontSize: "1rem", fontWeight: "600", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" },
+  statsGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "16px" },
+  statItem: { background: "#1e293b", border: "1px solid #334155", borderRadius: "12px", padding: "16px", textAlign: "center" },
+  statValue: { fontSize: "1.5rem", fontWeight: "700", color: "#f8fafc" },
+  statLabel: { fontSize: "0.8rem", color: "#94a3b8", marginTop: "4px" },
+  progressHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
+  progressTitle: { fontWeight: "600" },
+  progressPercent: { fontWeight: "700", color: "#fbbf24" },
+  progressBarContainer: { background: "#334155", borderRadius: "999px", height: "12px", overflow: "hidden" },
+  progressBar: { background: "linear-gradient(90deg, #fbbf24, #f59e0b, #d97706)", height: "100%", transition: "width 0.5s ease" },
+  progressText: { textAlign: "center", color: "#94a3b8", marginTop: "12px" },
+  badgesTitle: { fontSize: "1.25rem", fontWeight: "700", marginBottom: "16px" },
   badgesGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" },
-  badgeItem: {
-    textAlign: "center",
-    padding: "20px 12px",
-    borderRadius: "16px",
-    border: "2px solid transparent",
-  },
-  badgeIcon: { fontSize: "2.5rem", display: "block", marginBottom: "12px" },
+  badgeItem: { background: "#1e293b", border: "2px solid #334155", borderRadius: "12px", padding: "16px", textAlign: "center" },
+  badgeIcon: { fontSize: "2rem", display: "block", marginBottom: "8px" },
   badgeName: { fontSize: "0.85rem", fontWeight: "600", marginBottom: "4px" },
-  badgeDays: { fontSize: "0.75rem", color: "#64748b" },
-  badgeStatus: { marginTop: "12px", fontSize: "1.5rem" },
-  toast: {
-    position: "fixed",
-    bottom: "24px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    padding: "16px 24px",
-    borderRadius: "12px",
-    fontWeight: "500",
-    color: "#fff",
-    zIndex: 1000,
-  },
-  footer: {
-    textAlign: "center",
-    padding: "32px 0 16px",
-    borderTop: "1px solid #334155",
-    marginTop: "24px",
-    color: "#64748b",
-    fontSize: "0.9rem",
-  },
-  disclaimer: { fontSize: "0.8rem", opacity: 0.7, marginTop: "8px" },
+  badgeDays: { fontSize: "0.75rem", color: "#94a3b8" },
+  badgeStatus: { marginTop: "8px", fontSize: "1rem" },
+  toast: { position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)", padding: "16px 24px", borderRadius: "12px", color: "white", fontWeight: "600", zIndex: 1000 },
+  footer: { textAlign: "center", marginTop: "32px", paddingTop: "24px", borderTop: "1px solid #334155" },
+  disclaimer: { fontSize: "0.8rem", color: "#64748b", marginTop: "8px" },
+  walletBtn: { background: "#6366f1", color: "white", border: "none", borderRadius: "8px", padding: "12px 24px", fontWeight: "600" },
 };
