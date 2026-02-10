@@ -1,137 +1,150 @@
+// Solana client helper for Civic Streak program
+import {
+  Connection,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
-import { Program, AnchorProvider } from "@coral-xyz/anchor";
-import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
-import IDL from "../../../target/idl/civic_streak.json";
+import { Buffer } from "buffer";
+import { sha256 } from "@noble/hashes/sha256";
 
-// Program ID from environment variables (required for production)
-const PROGRAM_ID = (() => {
-  const programId = import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID;
-  if (!programId) {
-    throw new Error("VITE_CIVIC_STREAK_PROGRAM_ID environment variable is not set");
-  }
-  return new PublicKey(programId);
-})();
+// Program ID - should match the deployed program
+const PROGRAM_ID = "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X";
 
-// RPC endpoint configuration
-export const getConnection = () => {
-  const network = (import.meta.env.VITE_SOLANA_NETWORK || "devnet") as any;
-  const rpcEndpoint = import.meta.env.VITE_SOLANA_RPC_ENDPOINT || clusterApiUrl(network);
-  return new Connection(rpcEndpoint, "confirmed");
+export interface UserStreakData {
+  user: string;
+  streakCount: number;
+  lastInteractionTs: number;
+  createdTs: number;
+  milestoneClaimed: number;
+}
+
+export interface Milestone {
+  days: number;
+  name: string;
+  icon: string;
+  color: string;
+}
+
+export const MILESTONES: Milestone[] = [
+  { days: 7, name: "Civic Starter", icon: "🌟", color: "#fbbf24" },
+  { days: 14, name: "Consistent", icon: "⭐", color: "#60a5fa" },
+  { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
+];
+
+// Derive instruction discriminators (first 8 bytes of sha256("global:<snake_case_name>"))
+const getInstructionDiscriminator = (name: string): Buffer => {
+  const preimage = new TextEncoder().encode(`global:${name}`);
+  const hash = sha256.create().update(preimage).digest(); // Uint8Array(32)
+  return Buffer.from(hash.slice(0, 8));
 };
 
-// Initialize Anchor provider
-export const getProvider = (connection: Connection, wallet: any) => {
-  return new AnchorProvider(
-    connection,
-    wallet,
-    { commitment: "confirmed" }
-  );
-};
+const DISC_INITIALIZE = getInstructionDiscriminator("initialize_user_streak");
+const DISC_RECORD = getInstructionDiscriminator("record_daily_engagement");
 
-// Get the program instance
-export const getProgram = (provider: AnchorProvider) => {
-  // Avoid mixed PublicKey-class issues by passing programId as a base58 string.
-  // @ts-ignore - Program constructor accepts (idl, programId, provider)
-  return new Program(IDL as any, PROGRAM_ID.toString(), provider as any);
-};
+const programPublicKey = new PublicKey(PROGRAM_ID);
 
-// Helper function to find user streak PDA
-export const getUserStreakPDA = (userPublicKey: PublicKey) => {
+// Get PDA for user streak account
+export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("streak"), userPublicKey.toBuffer()],
-    PROGRAM_ID
+    [Buffer.from("streak"), userPubkey.toBuffer()],
+    programPublicKey
   );
   return pda;
 };
 
-// Calculate instruction discriminator
-export const getInstructionDiscriminator = async (instructionName: string): Promise<Uint8Array> => {
-  const message = "global:" + instructionName;
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const discriminator = new Uint8Array(hashBuffer.slice(0, 8));
-  console.log(`Discriminator for ${instructionName}: ${Buffer.from(discriminator).toString('hex')}`);
-  return discriminator;
+// Build raw instruction
+const buildInstruction = (
+  userPubkey: PublicKey,
+  discriminator: Buffer
+): TransactionInstruction => {
+  const streakPDA = getUserStreakPDA(userPubkey);
+
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: userPubkey, isSigner: true, isWritable: true },
+      { pubkey: streakPDA, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: programPublicKey,
+    data: discriminator,
+  });
 };
 
-// Verify program ID matches
-export const verifyProgramSetup = async (connection: Connection) => {
-  try {
-    const programAccount = await connection.getAccountInfo(PROGRAM_ID);
-    if (!programAccount) {
-      console.error(`Program not found at: ${PROGRAM_ID.toString()}`);
-      return { success: false, error: "Program not deployed" };
-    }
-    console.log(`Program found at: ${PROGRAM_ID.toString()}`);
-    console.log(`Program owner: ${programAccount.owner.toString()}`);
-    return { success: true, programAccount };
-  } catch (error) {
-    console.error("Error verifying program:", error);
-    return { success: false, error };
-  }
+// Initialize streak account (raw transaction, no Anchor Program client)
+export const initializeStreak = async (
+  connection: Connection,
+  wallet: anchor.Wallet | any,
+  userPubkey: PublicKey
+): Promise<string> => {
+  const provider = new anchor.AnchorProvider(
+    connection as any,
+    wallet,
+    { commitment: "confirmed" }
+  );
+
+  const tx = new Transaction().add(
+    buildInstruction(userPubkey, DISC_INITIALIZE)
+  );
+
+  const sig = await provider.sendAndConfirm(tx);
+  return sig;
 };
 
-// Initialize user streak
-export const initializeUserStreak = async (
-  program: Program,
-  user: PublicKey
-) => {
-  const streakAccount = getUserStreakPDA(user);
-  
-  const tx = await program.methods
-    .initializeUserStreak()
-    .accounts({
-      user,
-      userStreak: streakAccount,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .rpc();
-
-  return tx;
-};
-
-// Record daily engagement
+// Record daily engagement (raw transaction, no Anchor Program client)
 export const recordDailyEngagement = async (
-  program: Program,
-  user: PublicKey
-) => {
-  const streakAccount = getUserStreakPDA(user);
-  
-  const tx = await program.methods
-    .recordDailyEngagement()
-    .accounts({
-      user,
-      userStreak: streakAccount,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .rpc();
+  connection: Connection,
+  wallet: anchor.Wallet | any,
+  userPubkey: PublicKey
+): Promise<string> => {
+  const provider = new anchor.AnchorProvider(
+    connection as any,
+    wallet,
+    { commitment: "confirmed" }
+  );
 
-  return tx;
+  const tx = new Transaction().add(
+    buildInstruction(userPubkey, DISC_RECORD)
+  );
+
+  const sig = await provider.sendAndConfirm(tx);
+  return sig;
 };
 
-// Get user streak data
-export const getUserStreak = async (
-  program: Program,
-  user: PublicKey
-) => {
-  const streakAccount = getUserStreakPDA(user);
-  
-  try {
-    // @ts-ignore - account.userStreak exists at runtime
-    const account = await program.account.userStreak.fetch(streakAccount);
-    return {
-      user: account.user.toString(),
-      streakCount: account.streakCount.toString(),
-      lastInteractionTs: account.lastInteractionTs.toString(),
-      createdTs: account.createdTs.toString(),
-      milestoneClaimed: account.milestoneClaimed.toString(),
-    };
-  } catch (error) {
-    console.log("No streak account found for user", error);
+// Fetch streak data from blockchain
+export const fetchStreakData = async (
+  connection: Connection,
+  userPubkey: PublicKey
+): Promise<UserStreakData | null> => {
+  const streakPDA = getUserStreakPDA(userPubkey);
+  const accountInfo = await connection.getAccountInfo(streakPDA);
+
+  if (!accountInfo) {
     return null;
   }
+
+  // Decode account data (first 8 bytes are discriminator)
+  const data = accountInfo.data;
+  const streakCount = Number(data.readBigUInt64LE(8));
+  const lastInteractionTs = Number(data.readBigInt64LE(16));
+  const createdTs = Number(data.readBigInt64LE(24));
+  const milestoneClaimed = Number(data.readBigUInt64LE(32));
+
+  return {
+    user: userPubkey.toString(),
+    streakCount,
+    lastInteractionTs,
+    createdTs,
+    milestoneClaimed,
+  };
 };
 
-// Export PROGRAM_ID for use in other files
-export { PROGRAM_ID };
+// Confirm transaction
+export const confirmTransaction = async (
+  connection: Connection,
+  signature: string
+): Promise<void> => {
+  await connection.confirmTransaction(signature, "confirmed");
+};

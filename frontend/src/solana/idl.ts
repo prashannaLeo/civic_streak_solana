@@ -1,4 +1,4 @@
-// IDL for Civic Streak Anchor Program (Anchor 0.32.x format)
+// IDL for Civic Streak Anchor Program (Anchor 0.32.x format with metadata)
 import { Program } from "@coral-xyz/anchor";
 
 export const civicStreakIdl = {
@@ -51,4 +51,7 @@ export const civicStreakIdl = {
     { code: 6000, name: "AlreadyClaimedToday", msg: "You have already claimed your civic action for today. Come back tomorrow!" },
     { code: 6001, name: "StreakExpired", msg: "Your streak has expired. Start a new streak today!" },
   ],
+  metadata: {
+    address: "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X",
+  },
 };
