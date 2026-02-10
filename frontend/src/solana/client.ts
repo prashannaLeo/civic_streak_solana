@@ -49,7 +49,7 @@ const programPublicKey = new PublicKey(PROGRAM_ID);
 // Get PDA for user streak account
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("streak"), userPubkey.toBuffer()],
+    [Buffer.from("streak_v2"), userPubkey.toBuffer()],
     programPublicKey
   );
   return pda;

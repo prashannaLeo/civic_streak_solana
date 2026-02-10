@@ -16,7 +16,7 @@ use anchor_lang::prelude::*;
 // =====================================================
 
 /// Seed prefix for user streak account PDA
-const STREAK_SEED: &[u8] = b"streak";
+const STREAK_SEED: &[u8] = b"streak_v2";
 
 /// Time window for maintaining streak (48 hours in seconds)
 const STREAK_WINDOW_SECONDS: i64 = 48 * 60 * 60;
