@@ -6,6 +6,19 @@ export default defineConfig({
   base: '/civic_streak_solana/',
   root: '.',
   publicDir: 'public',
+  // Solana deps expect Buffer/global in the browser.
+  // `src/main.tsx` sets `window.Buffer = Buffer`; this ensures the `buffer` package is bundled.
+  define: {
+    global: 'globalThis',
+  },
+  resolve: {
+    alias: {
+      buffer: 'buffer',
+    },
+  },
+  optimizeDeps: {
+    include: ['buffer'],
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
@@ -13,13 +26,5 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
-  },
-  define: {
-    'process.env': {},
-  },
-  resolve: {
-    alias: {
-      Buffer: 'buffer/',
-    },
   },
 });

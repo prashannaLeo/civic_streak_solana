@@ -1,17 +1,20 @@
-// Solana client helper for Civic Streak program
+// Solana client helper for Civic Streak program - using Anchor Program class
 import {
   Connection,
   PublicKey,
   SystemProgram,
-  Transaction,
-  TransactionInstruction,
 } from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
-import { Buffer } from "buffer";
-import { sha256 } from "@noble/hashes/sha256";
+import { civicStreakIdl } from "./idl";
 
-// Program ID - should match the deployed program
-const PROGRAM_ID = "6R3y8BC8TtTK8a7ojRUyF6FDriHGLqgwpDS6ftykqiKo";
+// Program ID - only from .env (VITE_CIVIC_STREAK_PROGRAM_ID)
+const PROGRAM_ID = (import.meta as any)?.env?.VITE_CIVIC_STREAK_PROGRAM_ID;
+
+if (!PROGRAM_ID) {
+  throw new Error(
+    "Missing VITE_CIVIC_STREAK_PROGRAM_ID in frontend/.env"
+  );
+}
 
 export interface UserStreakData {
   user: string;
@@ -34,83 +37,82 @@ export const MILESTONES: Milestone[] = [
   { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
 ];
 
-// Derive instruction discriminators (first 8 bytes of sha256("global:<snake_case_name>"))
-const getInstructionDiscriminator = (name: string): Buffer => {
-  const preimage = new TextEncoder().encode(`global:${name}`);
-  const hash = sha256.create().update(preimage).digest(); // Uint8Array(32)
-  return Buffer.from(hash.slice(0, 8));
+// Create Anchor Program instance
+const getProgram = (
+  connection: Connection,
+  wallet: anchor.Wallet | any
+): anchor.Program => {
+  // Use anchor's bundled web3 for PublicKey to avoid _bn errors
+  const anchorConnection = new anchor.web3.Connection(
+    connection.rpcEndpoint,
+    "confirmed"
+  );
+  
+  const provider = new anchor.AnchorProvider(
+    anchorConnection,
+    wallet,
+    { commitment: "confirmed" }
+  );
+
+  // Create PublicKey using anchor's bundled class
+  const programIdKey = new anchor.web3.PublicKey(PROGRAM_ID);
+
+  // Create program with IDL - use 'any' to bypass strict type checking
+  // Anchor Program constructor: (idl, programId, provider)
+  return new (anchor.Program as any)(civicStreakIdl, programIdKey, provider);
 };
-
-const DISC_INITIALIZE = getInstructionDiscriminator("initialize_user_streak");
-const DISC_RECORD = getInstructionDiscriminator("record_daily_engagement");
-
-const programPublicKey = new PublicKey(PROGRAM_ID);
 
 // Get PDA for user streak account
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
+  // Use anchor's bundled PublicKey
+  const anchorPublicKey = new anchor.web3.PublicKey(PROGRAM_ID);
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from("streak_v3"), userPubkey.toBuffer()],
-    programPublicKey
+    anchorPublicKey
   );
   return pda;
 };
 
-// Build raw instruction
-const buildInstruction = (
-  userPubkey: PublicKey,
-  discriminator: Buffer
-): TransactionInstruction => {
-  const streakPDA = getUserStreakPDA(userPubkey);
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: userPubkey, isSigner: true, isWritable: true },
-      { pubkey: streakPDA, isSigner: false, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId: programPublicKey,
-    data: discriminator,
-  });
-};
-
-// Initialize streak account (raw transaction, no Anchor Program client)
+// Initialize streak account
 export const initializeStreak = async (
   connection: Connection,
   wallet: anchor.Wallet | any,
   userPubkey: PublicKey
 ): Promise<string> => {
-  const provider = new anchor.AnchorProvider(
-    connection as any,
-    wallet,
-    { commitment: "confirmed" }
-  );
+  const program = getProgram(connection, wallet);
+  const streakPDA = getUserStreakPDA(userPubkey);
 
-  const tx = new Transaction().add(
-    buildInstruction(userPubkey, DISC_INITIALIZE)
-  );
+  const signature = await program.methods
+    .initializeUserStreak()
+    .accounts({
+      user: userPubkey,
+      userStreak: streakPDA,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc({ commitment: "confirmed" });
 
-  const sig = await provider.sendAndConfirm(tx);
-  return sig;
+  return signature;
 };
 
-// Record daily engagement (raw transaction, no Anchor Program client)
+// Record daily engagement
 export const recordDailyEngagement = async (
   connection: Connection,
   wallet: anchor.Wallet | any,
   userPubkey: PublicKey
 ): Promise<string> => {
-  const provider = new anchor.AnchorProvider(
-    connection as any,
-    wallet,
-    { commitment: "confirmed" }
-  );
+  const program = getProgram(connection, wallet);
+  const streakPDA = getUserStreakPDA(userPubkey);
 
-  const tx = new Transaction().add(
-    buildInstruction(userPubkey, DISC_RECORD)
-  );
+  const signature = await program.methods
+    .recordDailyEngagement()
+    .accounts({
+      user: userPubkey,
+      userStreak: streakPDA,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc({ commitment: "confirmed" });
 
-  const sig = await provider.sendAndConfirm(tx);
-  return sig;
+  return signature;
 };
 
 // Fetch streak data from blockchain

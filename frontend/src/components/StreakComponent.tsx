@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useWallet, useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
-import * as anchor from "@coral-xyz/anchor";
+import { PublicKey } from "@solana/web3.js";
 import {
-  getProgram,
   getUserStreakPDA,
   initializeStreak as initStreak,
   recordDailyEngagement as recordEngagement,
@@ -15,15 +13,8 @@ import {
 
 // Milestone configuration (imported from client.ts)
 
-// Program ID from environment variable
-const PROGRAM_ID = new PublicKey(
-  typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" && import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "6R3y8BC8TtTK8a7ojRUyF6FDriHGLqgwpDS6ftykqiKo"
-);
-
 export const StreakComponent: React.FC = () => {
-  const { publicKey, connected, disconnect, disconnecting, sendTransaction } = useWallet();
+  const { publicKey, connected, disconnect, disconnecting } = useWallet();
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
 
