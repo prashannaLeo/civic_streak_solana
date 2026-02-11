@@ -11,7 +11,7 @@ import { Buffer } from "buffer";
 import { sha256 } from "@noble/hashes/sha256";
 
 // Program ID - should match the deployed program
-const PROGRAM_ID = "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X";
+const PROGRAM_ID = "6R3y8BC8TtTK8a7ojRUyF6FDriHGLqgwpDS6ftykqiKo";
 
 export interface UserStreakData {
   user: string;
@@ -49,7 +49,7 @@ const programPublicKey = new PublicKey(PROGRAM_ID);
 // Get PDA for user streak account
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("streak_v2"), userPubkey.toBuffer()],
+    [Buffer.from("streak_v3"), userPubkey.toBuffer()],
     programPublicKey
   );
   return pda;

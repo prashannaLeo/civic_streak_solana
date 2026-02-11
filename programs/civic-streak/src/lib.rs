@@ -16,7 +16,7 @@ use anchor_lang::prelude::*;
 // =====================================================
 
 /// Seed prefix for user streak account PDA
-const STREAK_SEED: &[u8] = b"streak_v2";
+const STREAK_SEED: &[u8] = b"streak_v3";
 
 /// Time window for maintaining streak (48 hours in seconds)
 const STREAK_WINDOW_SECONDS: i64 = 48 * 60 * 60;
@@ -24,7 +24,7 @@ const STREAK_WINDOW_SECONDS: i64 = 48 * 60 * 60;
 const DAY_SECONDS: i64 = 24 * 60 * 60;
 
 /// Program ID
-declare_id!("AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X");
+declare_id!("9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526");
 
 #[program]
 pub mod civic_streak {

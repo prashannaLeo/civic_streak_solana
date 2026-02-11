@@ -44,7 +44,7 @@ We reverted to **using Anchor’s TypeScript client properly** and removed the f
 
 2. **Program ID and PDA**
    - Program ID stays:
-     - `declare_id!("AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X");` in Rust.
+     - `declare_id!("9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526");` in Rust.
      - `PROGRAM_ID` as `new PublicKey(...)` in TS.
    - PDA helper matches Rust:
      - `seeds = [b"streak", user.key().as_ref()]` in Rust.
@@ -98,6 +98,15 @@ Anchor then constructs its own `PublicKey` internally from the string, preventin
   - When in doubt, pass `programId.toString()` (base58) into libraries that may bundle their own `PublicKey` class.
 - **Centralize PDA seed logic**:
   - PDA seeds used in Rust (`STREAK_SEED`) and TS must always stay in sync.
+
+### 5. AccountDidNotDeserialize (0xbbb / 3003) – PDA seed bump
+
+- **Symptom:** `AnchorError caused by account: user_streak. Error Code: AccountDidNotDeserialize`.
+- **Cause:** An account already existed at the streak PDA with data that didn't match the current `UserStreak` layout (e.g. from an older program version or partial init).
+- **Fix applied:** Bumped PDA seed from `streak_v2` to `streak_v3` so the program uses a **new** PDA with no prior state:
+  - **Rust** (`programs/civic-streak/src/lib.rs`): `const STREAK_SEED: &[u8] = b"streak_v3";`
+  - **Frontend** (`frontend/src/solana/client.ts`): `Buffer.from("streak_v3")` in `getUserStreakPDA`.
+- **After changing the seed:** Run `anchor build` and `anchor deploy --provider.cluster devnet`, then restart the frontend.
 
 Keeping these notes up to date should prevent us from re‑introducing the `_bn` error or the fallback‑instruction error in future refactors.
 

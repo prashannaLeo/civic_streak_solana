@@ -52,6 +52,6 @@ export const civicStreakIdl = {
     { code: 6001, name: "StreakExpired", msg: "Your streak has expired. Start a new streak today!" },
   ],
   metadata: {
-    address: "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X",
+    address: "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
   },
 };

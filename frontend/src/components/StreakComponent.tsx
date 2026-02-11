@@ -19,7 +19,7 @@ import {
 const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" && import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X"
+    : "6R3y8BC8TtTK8a7ojRUyF6FDriHGLqgwpDS6ftykqiKo"
 );
 
 export const StreakComponent: React.FC = () => {
