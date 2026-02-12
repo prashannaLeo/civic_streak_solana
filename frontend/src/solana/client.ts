@@ -1,19 +1,17 @@
-// Solana client helper for Civic Streak program - using Anchor Program class
+// Solana client helper for Civic Streak program - using web3.js directly
 import {
   Connection,
   PublicKey,
   SystemProgram,
+  Transaction,
+  TransactionInstruction,
 } from "@solana/web3.js";
-import * as anchor from "@coral-xyz/anchor";
-import { civicStreakIdl } from "./idl";
 
 // Program ID - only from .env (VITE_CIVIC_STREAK_PROGRAM_ID)
-const PROGRAM_ID = (import.meta as any)?.env?.VITE_CIVIC_STREAK_PROGRAM_ID;
+const PROGRAM_ID = import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID;
 
 if (!PROGRAM_ID) {
-  throw new Error(
-    "Missing VITE_CIVIC_STREAK_PROGRAM_ID in frontend/.env"
-  );
+  throw new Error("Missing VITE_CIVIC_STREAK_PROGRAM_ID in frontend/.env");
 }
 
 export interface UserStreakData {
@@ -34,119 +32,167 @@ export interface Milestone {
 export const MILESTONES: Milestone[] = [
   { days: 7, name: "Civic Starter", icon: "🌟", color: "#fbbf24" },
   { days: 14, name: "Consistent", icon: "⭐", color: "#60a5fa" },
-  { days: 30, name: "Champion", icon: "🏆", color: "#a78bfa" },
+  { days: 30, name: "Civic Champion", icon: "🏆", color: "#10b981" },
 ];
-
-// Create Anchor Program instance
-const getProgram = (
-  connection: Connection,
-  wallet: anchor.Wallet | any
-): anchor.Program => {
-  // Use anchor's bundled web3 for PublicKey to avoid _bn errors
-  const anchorConnection = new anchor.web3.Connection(
-    connection.rpcEndpoint,
-    "confirmed"
-  );
-  
-  const provider = new anchor.AnchorProvider(
-    anchorConnection,
-    wallet,
-    { commitment: "confirmed" }
-  );
-
-  // Create PublicKey using anchor's bundled class
-  const programIdKey = new anchor.web3.PublicKey(PROGRAM_ID);
-
-  // Create program with IDL - use 'any' to bypass strict type checking
-  // Anchor Program constructor: (idl, programId, provider)
-  return new (anchor.Program as any)(civicStreakIdl, programIdKey, provider);
-};
 
 // Get PDA for user streak account
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
-  // Use anchor's bundled PublicKey
-  const anchorPublicKey = new anchor.web3.PublicKey(PROGRAM_ID);
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from("streak_v3"), userPubkey.toBuffer()],
-    anchorPublicKey
+    new PublicKey(PROGRAM_ID),
   );
   return pda;
 };
 
 // Initialize streak account
-export const initializeStreak = async (
+export const initializeUserStreak = async (
   connection: Connection,
-  wallet: anchor.Wallet | any,
-  userPubkey: PublicKey
+  wallet: any,
+  userPubkey: PublicKey,
 ): Promise<string> => {
-  const program = getProgram(connection, wallet);
   const streakPDA = getUserStreakPDA(userPubkey);
+  const programId = new PublicKey(PROGRAM_ID);
 
-  const signature = await program.methods
-    .initializeUserStreak()
-    .accounts({
-      user: userPubkey,
-      userStreak: streakPDA,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc({ commitment: "confirmed" });
+  // Create instruction data: 0 for initialize_user_streak
+  const instructionData = Buffer.from([0]);
 
-  return signature;
+  const instruction = new TransactionInstruction({
+    keys: [
+      { pubkey: userPubkey, isSigner: true, isWritable: true },
+      { pubkey: streakPDA, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId,
+    data: instructionData,
+  });
+
+  const transaction = new Transaction().add(instruction);
+
+  if (wallet.signTransaction) {
+    const signedTransaction = await wallet.signTransaction(transaction);
+    const signature = await connection.sendRawTransaction(
+      signedTransaction.serialize(),
+    );
+    return signature;
+  } else {
+    throw new Error("Wallet does not support signing transactions");
+  }
 };
 
 // Record daily engagement
 export const recordDailyEngagement = async (
   connection: Connection,
-  wallet: anchor.Wallet | any,
-  userPubkey: PublicKey
+  wallet: any,
+  userPubkey: PublicKey,
 ): Promise<string> => {
-  const program = getProgram(connection, wallet);
   const streakPDA = getUserStreakPDA(userPubkey);
+  const programId = new PublicKey(PROGRAM_ID);
 
-  const signature = await program.methods
-    .recordDailyEngagement()
-    .accounts({
-      user: userPubkey,
-      userStreak: streakPDA,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc({ commitment: "confirmed" });
+  // Create instruction data: 1 for record_daily_engagement
+  const instructionData = Buffer.from([1]);
 
-  return signature;
+  const instruction = new TransactionInstruction({
+    keys: [
+      { pubkey: userPubkey, isSigner: true, isWritable: true },
+      { pubkey: streakPDA, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId,
+    data: instructionData,
+  });
+
+  const transaction = new Transaction().add(instruction);
+
+  if (wallet.signTransaction) {
+    const signedTransaction = await wallet.signTransaction(transaction);
+    const signature = await connection.sendRawTransaction(
+      signedTransaction.serialize(),
+    );
+    return signature;
+  } else {
+    throw new Error("Wallet does not support signing transactions");
+  }
 };
 
-// Fetch streak data from blockchain
-export const fetchStreakData = async (
+// Fetch user streak data
+export const fetchUserStreakData = async (
   connection: Connection,
-  userPubkey: PublicKey
+  userPubkey: PublicKey,
 ): Promise<UserStreakData | null> => {
   const streakPDA = getUserStreakPDA(userPubkey);
-  const accountInfo = await connection.getAccountInfo(streakPDA);
 
-  if (!accountInfo) {
+  try {
+    const accountInfo = await connection.getParsedAccountInfo(streakPDA);
+
+    if (!accountInfo.value) {
+      return null;
+    }
+
+    const data = accountInfo.value.data as any;
+    return {
+      user: data.user.toString(),
+      streakCount: Number(data.streakCount),
+      lastInteractionTs: Number(data.lastInteractionTs),
+      createdTs: Number(data.createdTs),
+      milestoneClaimed: Number(data.milestoneClaimed),
+    };
+  } catch (error) {
+    console.error("Error fetching streak data:", error);
     return null;
   }
-
-  // Decode account data (first 8 bytes are discriminator)
-  const data = accountInfo.data;
-  const streakCount = Number(data.readBigUInt64LE(8));
-  const lastInteractionTs = Number(data.readBigInt64LE(16));
-  const createdTs = Number(data.readBigInt64LE(24));
-  const milestoneClaimed = Number(data.readBigUInt64LE(32));
-
-  return {
-    user: userPubkey.toString(),
-    streakCount,
-    lastInteractionTs,
-    createdTs,
-    milestoneClaimed,
-  };
 };
 
-// Confirm transaction
-export const confirmTransaction = async (
+// Check if user has a streak account
+export const hasStreakAccount = async (
   connection: Connection,
-  signature: string
-): Promise<void> => {
-  await connection.confirmTransaction(signature, "confirmed");
+  userPubkey: PublicKey,
+): Promise<boolean> => {
+  const streakPDA = getUserStreakPDA(userPubkey);
+
+  try {
+    const accountInfo = await connection.getParsedAccountInfo(streakPDA);
+    return accountInfo.value !== null;
+  } catch (error) {
+    return false;
+  }
 };
+
+// Get current milestone
+export const getCurrentMilestone = (streakCount: number): Milestone | null => {
+  for (const milestone of [...MILESTONES].reverse()) {
+    if (streakCount >= milestone.days) {
+      return milestone;
+    }
+  }
+  return null;
+};
+
+// Get next milestone
+export const getNextMilestone = (streakCount: number): Milestone | null => {
+  for (const milestone of MILESTONES) {
+    if (streakCount < milestone.days) {
+      return milestone;
+    }
+  }
+  return null;
+};
+
+// Calculate days until next milestone
+export const daysUntilNextMilestone = (streakCount: number): number => {
+  const next = getNextMilestone(streakCount);
+  return next ? next.days - streakCount : 0;
+};
+
+// Get milestone progress percentage
+export const getMilestoneProgress = (
+  streakCount: number,
+  milestone: Milestone,
+): number => {
+  const prevDays = MILESTONES[MILESTONES.indexOf(milestone) - 1]?.days || 0;
+  const progress =
+    ((streakCount - prevDays) / (milestone.days - prevDays)) * 100;
+  return Math.min(100, Math.max(0, progress));
+};
+
+// Alias for fetchUserStreakData
+export const getUserStreak = fetchUserStreakData;

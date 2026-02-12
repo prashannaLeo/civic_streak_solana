@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { AnchorProvider } from "@coral-xyz/anchor";
 import {
-  getProgram,
   initializeUserStreak,
   recordDailyEngagement,
   getUserStreak,
@@ -10,10 +9,10 @@ import {
 
 export interface UserStreakData {
   user: string;
-  streakCount: string;
-  lastInteractionTs: string;
-  createdTs: string;
-  milestoneClaimed: string;
+  streakCount: number;
+  lastInteractionTs: number;
+  createdTs: number;
+  milestoneClaimed: number;
 }
 
 export const useCivicStreak = () => {
@@ -34,18 +33,15 @@ export const useCivicStreak = () => {
     setError(null);
 
     try {
-      const provider = new AnchorProvider(
+      const tx = await initializeUserStreak(
         connection,
-        wallet as any,
-        { commitment: "confirmed" }
+        wallet,
+        wallet.publicKey,
       );
-      const program = getProgram(provider);
-
-      const tx = await initializeUserStreak(program, wallet.publicKey);
       console.log("Transaction signature:", tx);
 
       // Fetch updated streak data
-      const data = await getUserStreak(program, wallet.publicKey);
+      const data = await getUserStreak(connection, wallet.publicKey);
       setStreakData(data);
 
       return tx;
@@ -69,18 +65,15 @@ export const useCivicStreak = () => {
     setError(null);
 
     try {
-      const provider = new AnchorProvider(
+      const tx = await recordDailyEngagement(
         connection,
-        wallet as any,
-        { commitment: "confirmed" }
+        wallet,
+        wallet.publicKey,
       );
-      const program = getProgram(provider);
-
-      const tx = await recordDailyEngagement(program, wallet.publicKey);
       console.log("Transaction signature:", tx);
 
       // Fetch updated streak data
-      const data = await getUserStreak(program, wallet.publicKey);
+      const data = await getUserStreak(connection, wallet.publicKey);
       setStreakData(data);
 
       return tx;
@@ -104,14 +97,7 @@ export const useCivicStreak = () => {
     setError(null);
 
     try {
-      const provider = new AnchorProvider(
-        connection,
-        wallet as any,
-        { commitment: "confirmed" }
-      );
-      const program = getProgram(provider);
-
-      const data = await getUserStreak(program, wallet.publicKey);
+      const data = await getUserStreak(connection, wallet.publicKey);
       setStreakData(data);
 
       return data;
