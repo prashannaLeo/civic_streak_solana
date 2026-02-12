@@ -1,8 +1,10 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
+// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+<<<<<<< HEAD
   base: '/civic_streak_solana/',
   root: '.',
   publicDir: 'public',
@@ -19,12 +21,32 @@ export default defineConfig({
   optimizeDeps: {
     include: ['buffer'],
   },
+=======
+  base: "./",
+  root: ".",
+  publicDir: "public",
+>>>>>>> 9b4bc66 (Add frontend and PDA logic)
   build: {
-    outDir: 'dist',
-    assetsDir: 'assets',
+    outDir: "dist",
+    assetsDir: "assets",
   },
   server: {
     port: 3000,
     open: true,
   },
+<<<<<<< HEAD
+=======
+  define: {
+    "process.env": {},
+    global: "window",
+  },
+  resolve: {
+    alias: {
+      Buffer: "buffer/",
+    },
+  },
+  optimizeDeps: {
+    include: ["buffer"],
+  },
+>>>>>>> 9b4bc66 (Add frontend and PDA logic)
 });
