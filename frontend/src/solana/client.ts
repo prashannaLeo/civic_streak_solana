@@ -10,8 +10,13 @@ import * as anchor from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
 import { sha256 } from "@noble/hashes/sha256";
 
-// Program ID - should match the deployed program
-const PROGRAM_ID = "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526";
+// Program ID - read from environment variable
+const PROGRAM_ID = new PublicKey(
+  typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
+    import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
+);
 
 export interface UserStreakData {
   user: string;
@@ -50,7 +55,7 @@ const programPublicKey = new PublicKey(PROGRAM_ID);
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from("streak_v3"), userPubkey.toBuffer()],
-    programPublicKey
+    programPublicKey,
   );
   return pda;
 };
@@ -58,7 +63,7 @@ export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
 // Build raw instruction
 const buildInstruction = (
   userPubkey: PublicKey,
-  discriminator: Buffer
+  discriminator: Buffer,
 ): TransactionInstruction => {
   const streakPDA = getUserStreakPDA(userPubkey);
 
@@ -77,16 +82,14 @@ const buildInstruction = (
 export const initializeStreak = async (
   connection: Connection,
   wallet: anchor.Wallet | any,
-  userPubkey: PublicKey
+  userPubkey: PublicKey,
 ): Promise<string> => {
-  const provider = new anchor.AnchorProvider(
-    connection as any,
-    wallet,
-    { commitment: "confirmed" }
-  );
+  const provider = new anchor.AnchorProvider(connection as any, wallet, {
+    commitment: "confirmed",
+  });
 
   const tx = new Transaction().add(
-    buildInstruction(userPubkey, DISC_INITIALIZE)
+    buildInstruction(userPubkey, DISC_INITIALIZE),
   );
 
   const sig = await provider.sendAndConfirm(tx);
@@ -97,17 +100,13 @@ export const initializeStreak = async (
 export const recordDailyEngagement = async (
   connection: Connection,
   wallet: anchor.Wallet | any,
-  userPubkey: PublicKey
+  userPubkey: PublicKey,
 ): Promise<string> => {
-  const provider = new anchor.AnchorProvider(
-    connection as any,
-    wallet,
-    { commitment: "confirmed" }
-  );
+  const provider = new anchor.AnchorProvider(connection as any, wallet, {
+    commitment: "confirmed",
+  });
 
-  const tx = new Transaction().add(
-    buildInstruction(userPubkey, DISC_RECORD)
-  );
+  const tx = new Transaction().add(buildInstruction(userPubkey, DISC_RECORD));
 
   const sig = await provider.sendAndConfirm(tx);
   return sig;
@@ -116,7 +115,7 @@ export const recordDailyEngagement = async (
 // Fetch streak data from blockchain
 export const fetchStreakData = async (
   connection: Connection,
-  userPubkey: PublicKey
+  userPubkey: PublicKey,
 ): Promise<UserStreakData | null> => {
   const streakPDA = getUserStreakPDA(userPubkey);
   const accountInfo = await connection.getAccountInfo(streakPDA);
@@ -144,7 +143,7 @@ export const fetchStreakData = async (
 // Confirm transaction
 export const confirmTransaction = async (
   connection: Connection,
-  signature: string
+  signature: string,
 ): Promise<void> => {
   await connection.confirmTransaction(signature, "confirmed");
 };

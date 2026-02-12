@@ -1,11 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useConnection } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import {
+  WalletMultiButton,
+  WalletDisconnectButton,
+} from "@solana/wallet-adapter-react-ui";
 import {
   PublicKey,
   SystemProgram,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
+import { Buffer } from "buffer";
+import {
+  fetchStreakData,
+  getUserStreakPDA,
+  UserStreakData,
+} from "../solana/client";
 
 // Milestone configuration with gamification
 const MILESTONES = [
@@ -54,43 +65,15 @@ const CIVIC_ACTIONS = [
   { id: "discuss", name: "Join Discussion", icon: "💬", points: 12 },
 ];
 
-// Wallet options with connection
-const WALLETS = [
-  {
-    name: "Phantom",
-    icon: "👻",
-    color: "#9945FF",
-    shortName: "phan",
-  },
-  {
-    name: "Solflare",
-    icon: "☀️",
-    color: "#8C54FB",
-    shortName: "solf",
-  },
-  {
-    name: "Glow",
-    icon: "✨",
-    color: "#FF6B35",
-    shortName: "glow",
-  },
-  {
-    name: "Brave",
-    icon: "🦁",
-    color: "#FF5500",
-    shortName: "brave",
-  },
-];
-
-// Program ID
+// Program ID - should match the deployed program
 const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
     import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "AcwHoN69JyVtJ9S82YbkJaW3Xd1eksUKCgRCfftc8A7X",
+    : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
 );
 
-// Discriminators
+// Discriminators for the program instructions
 const DISCRIMINATOR_INITIALIZE = Buffer.from([
   0x9d, 0x98, 0x88, 0x79, 0x0c, 0xa2, 0x38, 0x45,
 ]);
@@ -108,28 +91,38 @@ interface StreakData {
   lastActionDate: Date;
 }
 
-// Generate random public key (for demo, not real Solana key)
-const generateWalletAddress = () => {
-  // Use a valid Solana-like format (base58, 43-44 chars)
-  const chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  // Start with valid prefixes
-  const prefixes = [
-    "HN5aunChhFkAJ3uw9vsUwjvzn6TEUidXdBjMSZSBwfwi",
-    "E6rLmSitQ2QSnMu96HZvqioi9RiwnYbCZ5w3NXSyWWd7",
-  ];
-  return prefixes[Math.floor(Math.random() * prefixes.length)];
+// Fetch streak data from blockchain
+const fetchStreakDataFromChain = async (
+  connection: Connection,
+  userPubkey: PublicKey,
+): Promise<{
+  streakCount: number;
+  lastInteractionTs: number;
+  createdTs: number;
+} | null> => {
+  try {
+    const data = await fetchStreakData(connection, userPubkey);
+    if (data) {
+      return {
+        streakCount: data.streakCount,
+        lastInteractionTs: data.lastInteractionTs,
+        createdTs: data.createdTs,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error("Error fetching streak data:", err);
+    return null;
+  }
 };
 
 export const StreakComponent: React.FC = () => {
   const { connection } = useConnection();
+  const { publicKey, wallet, connected, connecting, disconnect } = useWallet();
 
-  // Wallet state
-  const [selectedWallet, setSelectedWallet] = useState<
-    (typeof WALLETS)[0] | null
-  >(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  // Wallet state - derive from actual wallet
   const [walletAddress, setWalletAddress] = useState<string>("");
+  const [walletName, setWalletName] = useState<string>("");
 
   const [streakData, setStreakData] = useState<StreakData>({
     streakCount: 0,
@@ -148,40 +141,29 @@ export const StreakComponent: React.FC = () => {
   } | null>(null);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [connectionStage, setConnectionStage] = useState<string | null>(null);
-  const [socketConnected, setSocketConnected] = useState(false);
-  const [showWalletSelector, setShowWalletSelector] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const animationRef = useRef<number>();
   const [particles, setParticles] = useState<
     Array<{ id: number; x: number; y: number; size: number; color: string }>
   >([]);
 
-  // Socket-like connection animation
+  // Sync wallet state
   useEffect(() => {
-    if (isConnecting) {
-      setSocketConnected(false);
-      const stages = [
-        "Establishing secure connection...",
-        `Connecting to ${selectedWallet?.name}...`,
-        "Verifying wallet signature...",
-        "Connecting to Solana network...",
-        "Retrieving account data...",
-      ];
-
-      let stageIndex = 0;
-      const interval = setInterval(() => {
-        if (stageIndex < stages.length) {
-          setConnectionStage(stages[stageIndex]);
-          stageIndex++;
-        } else {
-          clearInterval(interval);
-          setConnectionStage(null);
-        }
-      }, 600);
-    } else if (isConnected) {
-      setSocketConnected(true);
+    if (connected && publicKey) {
+      setWalletAddress(publicKey.toString());
+      setWalletName(wallet?.adapter?.name || "Wallet");
+      setMessage({
+        text: `✅ Connected to ${wallet?.adapter?.name || "Wallet"}!`,
+        type: "success",
+      });
+      createParticles(window.innerWidth / 2, window.innerHeight / 2);
+    } else if (!connected && walletAddress) {
+      // Wallet disconnected
+      setWalletAddress("");
+      setWalletName("");
     }
-  }, [isConnecting, isConnected, selectedWallet?.name]);
+  }, [connected, publicKey, wallet]);
 
   // Particle animation for achievements
   const createParticles = useCallback((x: number, y: number) => {
@@ -213,86 +195,50 @@ export const StreakComponent: React.FC = () => {
     });
   }, []);
 
-  // Generate transaction hash
-  const generateTransactionHash = () => {
-    const chars = "123456789abcdef";
-    let hash = "";
-    for (let i = 0; i < 64; i++) {
-      hash += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return hash;
-  };
-
-  // Connect to wallet
-  const handleConnect = useCallback((wallet: (typeof WALLETS)[0]) => {
-    setSelectedWallet(wallet);
-    setIsConnecting(true);
-    setShowWalletSelector(false);
-    setConnectionStage(`Initializing ${wallet.name}...`);
-
-    // Generate wallet address
-    const key = generateWalletAddress();
-    setWalletAddress(key);
-  }, []);
-
-  // Complete connection
-  useEffect(() => {
-    if (isConnecting && selectedWallet) {
-      const timer = setTimeout(() => {
-        setIsConnecting(false);
-        setIsConnected(true);
-        setSocketConnected(true);
-        setMessage({
-          text: `✅ Connected to ${selectedWallet.name}!`,
-          type: "success",
-        });
-        createParticles(window.innerWidth / 2, window.innerHeight / 2);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [isConnecting, selectedWallet, createParticles]);
-
   // Disconnect wallet
-  const handleDisconnect = useCallback(() => {
-    setIsConnected(false);
-    setIsConnecting(false);
-    setSelectedWallet(null);
-    setSocketConnected(false);
-    setWalletAddress("");
-    setStreakData({
-      streakCount: 0,
-      totalCivicPoints: 0,
-      badges: [],
-      completedActions: [],
-      createdAt: new Date(),
-      lastActionDate: new Date(),
-    });
-    setMessage(null);
-  }, []);
+  const handleDisconnect = useCallback(async () => {
+    try {
+      await disconnect();
+      setStreakData({
+        streakCount: 0,
+        totalCivicPoints: 0,
+        badges: [],
+        completedActions: [],
+        createdAt: new Date(),
+        lastActionDate: new Date(),
+      });
+      setMessage(null);
+    } catch (err) {
+      console.error("Disconnect error:", err);
+    }
+  }, [disconnect]);
 
-  // Start streak transaction
+  // Start streak transaction - REAL Solana transaction
   const startStreak = async () => {
-    if (!isConnected || !walletAddress) return;
+    if (!connected || !publicKey) {
+      setError("Please connect your wallet first");
+      return;
+    }
 
     setLoading(true);
     setConnectionStage("Preparing transaction...");
     setMessage(null);
+    setError(null);
 
     try {
-      // Transaction preparation
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setConnectionStage("Initializing on-chain...");
+      // Get the stake PDA
+      const streakPDA = getUserStreakPDA(publicKey);
 
       // Create instruction
       const instruction = new TransactionInstruction({
         keys: [
           {
-            pubkey: new PublicKey(walletAddress),
+            pubkey: publicKey,
             isSigner: true,
             isWritable: true,
           },
           {
-            pubkey: new PublicKey(walletAddress),
+            pubkey: streakPDA,
             isSigner: false,
             isWritable: true,
           },
@@ -309,34 +255,77 @@ export const StreakComponent: React.FC = () => {
       const transaction = new Transaction().add(instruction);
       const { blockhash } = await connection.getLatestBlockhash("confirmed");
       transaction.recentBlockhash = blockhash;
-      transaction.feePayer = new PublicKey(walletAddress);
+      transaction.feePayer = publicKey;
 
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const txHash = generateTransactionHash();
-      setTransactionHash(txHash);
+      // Send REAL transaction using wallet with retry
+      setConnectionStage("Sending transaction...");
 
-      setStreakData({
-        streakCount: 1,
-        totalCivicPoints: 10,
-        badges: [],
-        completedActions: [],
-        createdAt: new Date(),
-        lastActionDate: new Date(),
-      });
+      let sig: string | null = null;
+      const maxRetries = 3;
 
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          setConnectionStage(
+            `Sending transaction (attempt ${attempt}/${maxRetries})...`,
+          );
+          const txResult = await wallet?.adapter?.sendTransaction(
+            transaction,
+            connection,
+            {
+              skipPreflight: false,
+              maxRetries: 5,
+            },
+          );
+          if (txResult) {
+            sig = txResult;
+            break;
+          }
+        } catch (err: any) {
+          console.error(`Attempt ${attempt} failed:`, err);
+          if (attempt === maxRetries) {
+            throw new Error(
+              `Transaction failed after ${maxRetries} attempts: ${err.message}`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+
+      if (sig) {
+        setTransactionHash(sig);
+        setConnectionStage("Confirming transaction...");
+
+        // Wait for confirmation with longer timeout
+        try {
+          await connection.confirmTransaction(sig, "finalized");
+        } catch (confirmErr) {
+          // Try with confirmed commitment instead
+          await connection.confirmTransaction(sig, "confirmed");
+        }
+
+        setStreakData({
+          streakCount: 1,
+          totalCivicPoints: 10,
+          badges: [],
+          completedActions: [],
+          createdAt: new Date(),
+          lastActionDate: new Date(),
+        });
+
+        setMessage({
+          text: `🎉 Streak initialized on Solana! Tx: ${sig.slice(0, 8)}...`,
+          type: "success",
+        });
+
+        createParticles(window.innerWidth / 2, window.innerHeight / 2);
+
+        setTimeout(() => setTransactionHash(null), 5000);
+      }
+    } catch (err: any) {
+      console.error("Transaction error:", err);
+      setError(err.message || "Error initializing streak. Please try again.");
       setMessage({
-        text: "🎉 Streak initialized on Solana! Transaction confirmed!",
-        type: "success",
-      });
-
-      // Create celebration particles
-      createParticles(window.innerWidth / 2, window.innerHeight / 2);
-
-      setTimeout(() => setTransactionHash(null), 5000);
-    } catch (err) {
-      console.error("Error:", err);
-      setMessage({
-        text: "Error initializing streak. Please try again.",
+        text: err.message || "Error initializing streak. Please try again.",
         type: "error",
       });
     } finally {
@@ -345,30 +334,31 @@ export const StreakComponent: React.FC = () => {
     }
   };
 
-  // Complete action transaction
+  // Complete action transaction - REAL Solana transaction
   const completeAction = async (action: (typeof CIVIC_ACTIONS)[0]) => {
-    if (!isConnected || !walletAddress) return;
+    if (!connected || !publicKey) {
+      setError("Please connect your wallet first");
+      return;
+    }
 
     setLoading(true);
     setShowActionMenu(false);
     setMessage(null);
+    setError(null);
 
     try {
-      setConnectionStage("Preparing transaction...");
-
-      // Process transaction
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setConnectionStage("Processing on-chain update...");
+      // Get the stake PDA
+      const streakPDA = getUserStreakPDA(publicKey);
 
       const instruction = new TransactionInstruction({
         keys: [
           {
-            pubkey: new PublicKey(walletAddress),
+            pubkey: publicKey,
             isSigner: true,
             isWritable: true,
           },
           {
-            pubkey: new PublicKey(walletAddress),
+            pubkey: streakPDA,
             isSigner: false,
             isWritable: true,
           },
@@ -385,71 +375,164 @@ export const StreakComponent: React.FC = () => {
       const transaction = new Transaction().add(instruction);
       const { blockhash } = await connection.getLatestBlockhash("confirmed");
       transaction.recentBlockhash = blockhash;
-      transaction.feePayer = new PublicKey(walletAddress);
+      transaction.feePayer = publicKey;
 
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const txHash = generateTransactionHash();
-      setTransactionHash(txHash);
+      // Send REAL transaction using wallet with retry
+      setConnectionStage("Sending transaction...");
 
-      const now = new Date();
-      const lastAction = streakData.lastActionDate;
-      const hoursSinceLast =
-        (now.getTime() - lastAction.getTime()) / (1000 * 60 * 60);
+      let sig: string | null = null;
+      const maxRetries = 3;
 
-      let newStreakCount = streakData.streakCount;
-
-      if (hoursSinceLast > 48 && streakData.streakCount > 0) {
-        newStreakCount = 1;
-        setMessage({
-          text: "💔 Streak broken! Start fresh today!",
-          type: "error",
-        });
-      }
-
-      const newBadges = [...streakData.badges];
-      let bonusPoints = 0;
-
-      MILESTONES.forEach((milestone) => {
-        if (
-          newStreakCount === milestone.days &&
-          !newBadges.includes(milestone.name)
-        ) {
-          newBadges.push(milestone.name);
-          bonusPoints += 50;
-          setMessage({
-            text: `🎊 ${milestone.name} Badge Earned! +50 bonus!`,
-            type: "achievement",
-          });
-          createParticles(window.innerWidth / 2, window.innerHeight / 2);
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          setConnectionStage(
+            `Sending transaction (attempt ${attempt}/${maxRetries})...`,
+          );
+          const txResult = await wallet?.adapter?.sendTransaction(
+            transaction,
+            connection,
+            {
+              skipPreflight: false,
+              maxRetries: 5,
+            },
+          );
+          if (txResult) {
+            sig = txResult;
+            break;
+          }
+        } catch (err: any) {
+          console.error(`Attempt ${attempt} failed:`, err);
+          if (attempt === maxRetries) {
+            throw new Error(
+              `Transaction failed after ${maxRetries} attempts: ${err.message}`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         }
-      });
-
-      const pointsEarned = action.points + (bonusPoints > 0 ? bonusPoints : 0);
-
-      setStreakData({
-        ...streakData,
-        streakCount: newStreakCount,
-        totalCivicPoints: streakData.totalCivicPoints + pointsEarned,
-        badges: newBadges,
-        completedActions: [
-          ...streakData.completedActions,
-          { id: action.id, date: now },
-        ],
-        lastActionDate: now,
-      });
-
-      if (!bonusPoints) {
-        setMessage({
-          text: `✅ ${action.name} completed! +${action.points} points!`,
-          type: "success",
-        });
       }
 
-      setTimeout(() => setTransactionHash(null), 5000);
-    } catch (err) {
-      console.error("Error:", err);
+      if (sig) {
+        setTransactionHash(sig);
+        setConnectionStage("Confirming transaction...");
+
+        // Wait for confirmation
+        let confirmed = false;
+        try {
+          await connection.confirmTransaction(sig, "finalized");
+          confirmed = true;
+        } catch (confirmErr) {
+          // Try with confirmed commitment instead
+          try {
+            await connection.confirmTransaction(sig, "confirmed");
+            confirmed = true;
+          } catch (err2) {
+            console.warn(
+              "Transaction confirmation timeout, but may have succeeded:",
+              sig,
+            );
+          }
+        }
+
+        // Fetch the actual updated streak data from blockchain
+        setConnectionStage("Fetching updated streak data...");
+
+        // Retry fetching streak data up to 3 times with delay
+        let updatedStreakData = null;
+        for (let retry = 0; retry < 3; retry++) {
+          updatedStreakData = await fetchStreakDataFromChain(
+            connection,
+            publicKey,
+          );
+          if (updatedStreakData) break;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2000 * (retry + 1)),
+          );
+        }
+
+        if (updatedStreakData) {
+          const now = new Date();
+
+          // Calculate streak based on actual blockchain data
+          const lastAction = new Date(
+            updatedStreakData.lastInteractionTs * 1000,
+          );
+          const hoursSinceLast =
+            (now.getTime() - lastAction.getTime()) / (1000 * 60 * 60);
+
+          let newStreakCount = updatedStreakData.streakCount;
+
+          // Check if streak was reset (within 48h window should continue, else reset)
+          if (hoursSinceLast > 48 && updatedStreakData.streakCount > 1) {
+            // The blockchain already reset the streak, use the value as-is
+            newStreakCount = updatedStreakData.streakCount;
+          }
+
+          const newBadges = [...streakData.badges];
+          let bonusPoints = 0;
+
+          // Check for new milestone badges
+          MILESTONES.forEach((milestone) => {
+            if (
+              newStreakCount === milestone.days &&
+              !newBadges.includes(milestone.name)
+            ) {
+              newBadges.push(milestone.name);
+              bonusPoints += 50;
+              setMessage({
+                text: `🎊 ${milestone.name} Badge Earned! +50 bonus!`,
+                type: "achievement",
+              });
+              createParticles(window.innerWidth / 2, window.innerHeight / 2);
+            }
+          });
+
+          const pointsEarned =
+            action.points + (bonusPoints > 0 ? bonusPoints : 0);
+
+          setStreakData({
+            ...streakData,
+            streakCount: newStreakCount,
+            totalCivicPoints: streakData.totalCivicPoints + pointsEarned,
+            badges: newBadges,
+            completedActions: [
+              ...streakData.completedActions,
+              { id: action.id, date: now },
+            ],
+            lastActionDate: now,
+          });
+
+          if (!bonusPoints) {
+            setMessage({
+              text: `✅ ${action.name} completed! +${action.points} points! Streak: ${newStreakCount}`,
+              type: "success",
+            });
+          }
+        } else {
+          // Fallback if fetch fails - increment local streak
+          const now = new Date();
+          setStreakData({
+            ...streakData,
+            streakCount: streakData.streakCount + 1,
+            totalCivicPoints: streakData.totalCivicPoints + action.points,
+            completedActions: [
+              ...streakData.completedActions,
+              { id: action.id, date: now },
+            ],
+            lastActionDate: now,
+          });
+          setMessage({
+            text: `✅ ${action.name} completed! +${action.points} points!`,
+            type: "success",
+          });
+        }
+
+        setTimeout(() => setTransactionHash(null), 5000);
+      }
+    } catch (err: any) {
+      console.error("Transaction error:", err);
+      setError(err.message || "Error recording action. Please try again.");
       setMessage({
-        text: "Error recording action. Please try again.",
+        text: err.message || "Error recording action. Please try again.",
         type: "error",
       });
     } finally {
@@ -475,8 +558,8 @@ export const StreakComponent: React.FC = () => {
     };
   }, []);
 
-  // Render landing page
-  if (!isConnected) {
+  // Render landing page when not connected
+  if (!connected) {
     return (
       <div className="landing-container">
         <div className="particles">
@@ -520,90 +603,13 @@ export const StreakComponent: React.FC = () => {
           </div>
 
           <div className="connect-section">
-            <button
-              className="connect-button"
-              onClick={() => setShowWalletSelector(true)}
-            >
-              <span className="connect-icon">🔗</span>
-              Connect Wallet
-            </button>
-
-            {isConnecting && (
-              <div className="socket-connection">
-                <div className="socket-status">
-                  <div className="socket-icon">
-                    <div
-                      className="socket-pulse"
-                      style={{ background: selectedWallet?.color || "#667eea" }}
-                    ></div>
-                  </div>
-                  <div className="socket-info">
-                    <p className="socket-title">
-                      Connecting to {selectedWallet?.name || "Wallet"}...
-                    </p>
-                    {connectionStage && (
-                      <p className="socket-stage">{connectionStage}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="socket-bar">
-                  <div className="socket-progress"></div>
-                </div>
-              </div>
-            )}
-
+            <WalletMultiButton />
             <p className="connect-note">
-              Select a wallet to connect and start building your civic streak!
+              Connect your Phantom, Solflare, or other Solana wallet to start
+              building your civic streak!
             </p>
           </div>
         </div>
-
-        {/* Wallet Selector Modal */}
-        {showWalletSelector && (
-          <div
-            className="modal-overlay"
-            onClick={() => setShowWalletSelector(false)}
-          >
-            <div
-              className="wallet-selector-modal"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2>Select Your Wallet</h2>
-              <p className="modal-subtitle">Choose a wallet to connect</p>
-
-              <div className="wallet-list">
-                {WALLETS.map((wallet) => (
-                  <button
-                    key={wallet.name}
-                    className="wallet-option"
-                    onClick={() => handleConnect(wallet)}
-                    disabled={isConnecting}
-                  >
-                    <div
-                      className="wallet-icon"
-                      style={{ background: wallet.color }}
-                    >
-                      {wallet.icon}
-                    </div>
-                    <div className="wallet-info">
-                      <p className="wallet-name">{wallet.name}</p>
-                      <p className="wallet-desc">Connect wallet</p>
-                    </div>
-                    <span className="wallet-arrow">→</span>
-                  </button>
-                ))}
-              </div>
-
-              <button
-                className="modal-close"
-                onClick={() => setShowWalletSelector(false)}
-                disabled={isConnecting}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
 
         <style>{`
           * {
@@ -734,6 +740,36 @@ export const StreakComponent: React.FC = () => {
             box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4);
           }
 
+          /* Wallet Multi Button Styles */
+          .wallet-adapter-button {
+            width: 100% !important;
+            padding: 18px 32px !important;
+            font-size: 18px !important;
+            font-weight: 600 !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            border: none !important;
+            border-radius: 16px !important;
+            color: white !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 12px !important;
+            transition: all 0.3s ease !important;
+            margin-bottom: 24px !important;
+          }
+
+          .wallet-adapter-button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4) !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+          }
+
+          .wallet-adapter-button-start-icon {
+            display: flex !important;
+            align-items: center !important;
+          }
+
           .connect-icon {
             font-size: 20px;
           }
@@ -759,6 +795,7 @@ export const StreakComponent: React.FC = () => {
             width: 100%;
             height: 100%;
             border-radius: 50%;
+            background: #667eea;
             animation: pulse 2s ease-in-out infinite;
           }
 
@@ -803,139 +840,12 @@ export const StreakComponent: React.FC = () => {
             font-size: 14px;
             color: #9ca3af;
           }
-
-          .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.85);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            animation: fadeIn 0.2s ease;
-          }
-
-          @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-
-          .wallet-selector-modal {
-            background: #1a1a2e;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            padding: 32px;
-            width: 90%;
-            max-width: 450px;
-            animation: slideUp 0.3s ease;
-          }
-
-          @keyframes slideUp {
-            from { transform: translateY(30px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-          }
-
-          .wallet-selector-modal h2 {
-            margin: 0 0 8px 0;
-            font-size: 24px;
-          }
-
-          .modal-subtitle {
-            color: #9ca3af;
-            margin: 0 0 28px 0;
-          }
-
-          .wallet-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-bottom: 24px;
-          }
-
-          .wallet-option {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 18px 20px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-align: left;
-            width: 100%;
-          }
-
-          .wallet-option:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.08);
-            transform: translateX(4px);
-          }
-
-          .wallet-option:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-          }
-
-          .wallet-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-          }
-
-          .wallet-info {
-            flex: 1;
-          }
-
-          .wallet-name {
-            font-weight: 600;
-            margin: 0;
-            font-size: 16px;
-          }
-
-          .wallet-desc {
-            font-size: 13px;
-            color: #9ca3af;
-            margin: 4px 0 0 0;
-          }
-
-          .wallet-arrow {
-            color: #9ca3af;
-            font-size: 18px;
-          }
-
-          .modal-close {
-            width: 100%;
-            padding: 16px;
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #9ca3af;
-            border-radius: 16px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.2s;
-          }
-
-          .modal-close:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.05);
-          }
-
-          .modal-close:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-          }
         `}</style>
       </div>
     );
   }
 
-  // Render main dashboard
+  // Render main dashboard when connected
   return (
     <div className="dashboard-container">
       {/* Particles */}
@@ -955,31 +865,18 @@ export const StreakComponent: React.FC = () => {
         ))}
       </div>
 
-      {/* Socket connection indicator */}
-      {socketConnected && (
-        <div className="socket-indicator">
-          <div className="socket-dot"></div>
-          <span>Solana Network Connected</span>
-        </div>
-      )}
+      {/* Error message */}
+      {error && <div className="error-message">⚠️ {error}</div>}
 
       {/* Header */}
       <header className="header">
         <div className="logo-small">🏛️</div>
         <h1>Civic Streak</h1>
         <div className="wallet-badge">
-          <div
-            className="wallet-avatar"
-            style={{ background: selectedWallet?.color }}
-          >
-            {selectedWallet?.icon}
-          </div>
           <span className="wallet-address">
             {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}
           </span>
-          <button className="disconnect-btn" onClick={handleDisconnect}>
-            Disconnect
-          </button>
+          <WalletDisconnectButton />
         </div>
       </header>
 
@@ -1206,32 +1103,14 @@ export const StreakComponent: React.FC = () => {
           }
         }
 
-        .socket-indicator {
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: rgba(16, 185, 129, 0.2);
-          padding: 8px 16px;
-          border-radius: 20px;
-          font-size: 12px;
-          color: #34d399;
-          z-index: 100;
-        }
-
-        .socket-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #34d399;
-          animation: blink 2s ease-in-out infinite;
-        }
-
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+        .error-message {
+          margin: 20px 40px;
+          padding: 16px 20px;
+          background: rgba(239, 68, 68, 0.2);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 16px;
+          color: #f87171;
+          font-weight: 500;
         }
 
         .header {
@@ -1264,16 +1143,6 @@ export const StreakComponent: React.FC = () => {
           border-radius: 24px;
         }
 
-        .wallet-avatar {
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 18px;
-        }
-
         .wallet-address {
           font-family: monospace;
           font-size: 14px;
@@ -1293,6 +1162,21 @@ export const StreakComponent: React.FC = () => {
 
         .disconnect-btn:hover {
           background: rgba(239, 68, 68, 0.1);
+        }
+
+        .wallet-adapter-disconnect-button {
+          background: transparent !important;
+          border: 1px solid rgba(239, 68, 68, 0.5) !important;
+          color: #f87171 !important;
+          padding: 6px 12px !important;
+          border-radius: 8px !important;
+          cursor: pointer !important;
+          font-size: 12px !important;
+          transition: all 0.2s !important;
+        }
+
+        .wallet-adapter-disconnect-button:hover {
+          background: rgba(239, 68, 68, 0.1) !important;
         }
 
         .transaction-notification {
@@ -1658,11 +1542,6 @@ export const StreakComponent: React.FC = () => {
           width: 90%;
           max-width: 450px;
           animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-          from { transform: translateY(30px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
         }
 
         .modal h3 {
