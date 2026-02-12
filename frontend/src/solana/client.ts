@@ -2,16 +2,15 @@
 import {
   Connection,
   PublicKey,
-  SystemProgram,
   Transaction,
   TransactionInstruction,
+  SystemProgram,
 } from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
-import { Buffer } from "buffer";
 import { sha256 } from "@noble/hashes/sha256";
 
 // Program ID - should match the deployed program
-const PROGRAM_ID = "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526";
+const PROGRAM_ID = "ChNrscvcMYLVxwcrS1ukyGTXZ16U7VZ71Vv573Ue6W6s";
 
 export interface UserStreakData {
   user: string;
@@ -37,7 +36,7 @@ export const MILESTONES: Milestone[] = [
 // Derive instruction discriminators (first 8 bytes of sha256("global:<snake_case_name>"))
 const getInstructionDiscriminator = (name: string): Buffer => {
   const preimage = new TextEncoder().encode(`global:${name}`);
-  const hash = sha256.create().update(preimage).digest(); // Uint8Array(32)
+  const hash = sha256.create().update(preimage).digest();
   return Buffer.from(hash.slice(0, 8));
 };
 
@@ -46,10 +45,10 @@ const DISC_RECORD = getInstructionDiscriminator("record_daily_engagement");
 
 const programPublicKey = new PublicKey(PROGRAM_ID);
 
-// Get PDA for user streak account
+// Get PDA for user streak account (seed: streak_final_2024 - completely new seed)
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("streak_v3"), userPubkey.toBuffer()],
+    [Buffer.from("streak_final_2024"), userPubkey.toBuffer()],
     programPublicKey
   );
   return pda;
@@ -73,7 +72,7 @@ const buildInstruction = (
   });
 };
 
-// Initialize streak account (raw transaction, no Anchor Program client)
+// Initialize streak account (raw transaction)
 export const initializeStreak = async (
   connection: Connection,
   wallet: anchor.Wallet | any,
@@ -93,7 +92,7 @@ export const initializeStreak = async (
   return sig;
 };
 
-// Record daily engagement (raw transaction, no Anchor Program client)
+// Record daily engagement (raw transaction)
 export const recordDailyEngagement = async (
   connection: Connection,
   wallet: anchor.Wallet | any,

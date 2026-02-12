@@ -8,7 +8,7 @@ import {
   recordDailyEngagement as recordEngagement,
   fetchStreakData,
   UserStreakData,
-  MILESTONES
+  MILESTONES,
 } from "../solana/client";
 
 // Milestone configuration (imported from client.ts)
@@ -49,9 +49,9 @@ export const StreakComponent: React.FC = () => {
         setHasAccount(false);
       }
       setError(null);
-    } catch (err) {
+    } catch (err: any) {
+      setError("Failed to fetch streak data");
       console.error("Error fetching streak:", err);
-      setError("Failed to fetch streak data from blockchain");
     }
   }, [publicKey, connection]);
 
@@ -73,31 +73,21 @@ export const StreakComponent: React.FC = () => {
     setError(null);
 
     try {
-      const streakPDA = getPDA(publicKey);
-
-      // Check if account already exists
-      const existingAccount = await connection.getAccountInfo(streakPDA);
-      if (existingAccount) {
-        console.log("Account already exists!");
-        setHasAccount(true);
-        await fetchAndSetStreakData();
-        showMessage("📊 Streak account already exists!", "info");
-        setLoading(false);
-        return;
-      }
-
-      console.log("Sending initializeUserStreak transaction...");
-
+      // Debug: Log the PDA address
+      const pda = getUserStreakPDA(publicKey);
+      console.log("PDA Address:", pda.toString());
+      console.log("Seed used: streak_v5");
+      
+      console.log("Initializing streak account...");
       const signature = await initStreak(connection, anchorWallet, publicKey);
-
-      console.log("Signature:", signature);
-
+      console.log("Initialized! Signature:", signature);
+      
       await fetchAndSetStreakData();
-      showMessage("🎉 Streak account created!", "success");
+      showMessage("🎉 Streak account created! Start your civic journey!", "success");
     } catch (err: any) {
-      console.error("Error:", err);
-      setError(err.message || "Failed to create streak account");
-      showMessage(err.message || "Failed to create streak account", "error");
+      console.error("Init error:", err);
+      setError(err.message || "Failed to initialize streak");
+      showMessage(err.message || "Failed to initialize", "error");
     } finally {
       setLoading(false);
     }
@@ -184,6 +174,15 @@ export const StreakComponent: React.FC = () => {
         </div>
       )}
 
+      {message && (
+        <div style={{
+          ...styles.messageBanner,
+          background: message.type === "success" ? "#10b981" : message.type === "error" ? "#ef4444" : "#3b82f6",
+        }}>
+          {message.text}
+        </div>
+      )}
+
       {connected && (
         <>
           {!hasAccount ? (
@@ -226,134 +225,388 @@ export const StreakComponent: React.FC = () => {
                 </div>
                 <div style={styles.statItem}>
                   <div style={styles.statValue}>{nextMilestone.days - streak}</div>
-                  <div style={styles.statLabel}>Days to Next</div>
+                  <div style={styles.statLabel}>Days to {nextMilestone.name}</div>
                 </div>
                 <div style={styles.statItem}>
-                  <div style={styles.statValue}>{earnedBadges.length}</div>
-                  <div style={styles.statLabel}>Badges Earned</div>
+                  <div style={styles.statValue}>{streakData?.createdTs ? new Date(Number(streakData.createdTs) * 1000).toLocaleDateString() : "N/A"}</div>
+                  <div style={styles.statLabel}>Started</div>
                 </div>
               </div>
 
-              {/* Progress to next milestone */}
+              {/* Progress Bar */}
               <div style={styles.card}>
-                <div style={styles.progressHeader}>
-                  <span style={styles.progressTitle}>Progress to {nextMilestone.name}</span>
-                  <span style={styles.progressPercent}>{progressPercent.toFixed(1)}%</span>
+                <div style={styles.progressContainer}>
+                  <div style={styles.progressLabel}>
+                    <span>Progress to {nextMilestone.name}</span>
+                    <span>{progressPercent.toFixed(0)}%</span>
+                  </div>
+                  <div style={styles.progressBar}>
+                    <div style={{ ...styles.progressFill, width: `${progressPercent}%` }} />
+                  </div>
                 </div>
-                <div style={styles.progressBarContainer}>
-                  <div style={{ ...styles.progressBar, width: `${progressPercent}%` }} />
+
+                {/* Badges */}
+                <div style={styles.badgesSection}>
+                  <div style={styles.badgesTitle}>🏆 Milestones Earned</div>
+                  <div style={styles.badgesGrid}>
+                    {MILESTONES.map((m) => {
+                      const earned = earnedBadges.includes(m.days);
+                      return (
+                        <div
+                          key={m.days}
+                          style={{
+                            ...styles.badge,
+                            opacity: earned ? 1 : 0.4,
+                            border: earned ? `2px solid ${m.color}` : "2px solid #444",
+                          }}
+                        >
+                          <div style={styles.badgeIcon}>{m.icon}</div>
+                          <div style={styles.badgeName}>{m.name}</div>
+                          <div style={styles.badgeDays}>{m.days} days</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <p style={styles.progressText}>{streak} / {nextMilestone.days} days</p>
               </div>
 
-              {/* Milestones / Badges */}
-              <h3 style={styles.badgesTitle}>🏆 Milestone Badges</h3>
-              <div style={styles.badgesGrid}>
-                {MILESTONES.map((m) => {
-                  const earned = streak >= m.days;
-                  return (
-                    <div
-                      key={m.days}
-                      style={{
-                        ...styles.badgeItem,
-                        borderColor: earned ? m.color : "#334155",
-                        opacity: earned ? 1 : 0.5,
-                      }}
-                    >
-                      <span style={styles.badgeIcon}>{earned ? m.icon : "🔒"}</span>
-                      <div style={styles.badgeName}>{m.name}</div>
-                      <div style={styles.badgeDays}>{m.days} days</div>
-                      <div style={styles.badgeStatus}>
-                        {earned ? "✅ Earned" : "🔒 Locked"}
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* Streak History */}
+              {streakData?.lastInteractionTs && (
+                <div style={styles.card}>
+                  <h3 style={styles.sectionTitle}>📅 Activity Log</h3>
+                  <div style={styles.historyItem}>
+                    <span style={styles.historyLabel}>Last Civic Action</span>
+                    <span style={styles.historyValue}>
+                      {new Date(Number(streakData.lastInteractionTs) * 1000).toLocaleString()}
+                    </span>
+                  </div>
+                  <div style={styles.historyItem}>
+                    <span style={styles.historyLabel}>Streak Started</span>
+                    <span style={styles.historyValue}>
+                      {new Date(Number(streakData.createdTs) * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div style={styles.historyItem}>
+                    <span style={styles.historyLabel}>Milestone Claimed</span>
+                    <span style={styles.historyValue}>
+                      {streakData.milestoneClaimed ? `${streakData.milestoneClaimed} days` : "None"}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* How it works */}
+              <div style={styles.card}>
+                <h3 style={styles.sectionTitle}>📖 How It Works</h3>
+                <ol style={styles.stepsList}>
+                  <li>Click "Mark Today's Civic Action" daily</li>
+                  <li>Maintain your streak by engaging within 48 hours</li>
+                  <li>Earn milestone badges for 7, 14, and 30 days</li>
+                  <li>Your progress is stored securely on Solana</li>
+                </ol>
+              </div>
+
+              {/* Streak Rules */}
+              <div style={styles.card}>
+                <h3 style={styles.sectionTitle}>⚠️ Streak Rules</h3>
+                <ul style={styles.rulesList}>
+                  <li>Visit and engage at least once every 48 hours</li>
+                  <li>Miss the window → streak resets to Day 1</li>
+                  <li>Consistency builds your civic habit score</li>
+                </ul>
               </div>
             </>
           )}
         </>
       )}
 
-      {message && (
-        <div style={{
-          ...styles.toast,
-          background: message.type === "success" ? "#10b981" : message.type === "error" ? "#ef4444" : "#6366f1"
-        }}>
-          {message.text}
+      {/* Instructions for new users */}
+      {!connected && (
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>Welcome to Civic Streak! 🌟</h2>
+          <p style={styles.sectionText}>
+            Connect your wallet to start building daily civic habits. 
+            Vote on polls, read issue summaries, or acknowledge national topics 
+            to maintain your streak on the Solana blockchain.
+          </p>
+          <p style={{...styles.sectionText, marginTop: 16}}>
+            <strong>Why streaks matter:</strong> Consistent civic engagement 
+            builds better citizens. Solana ensures your progress is transparent 
+            and tamper-proof.
+          </p>
         </div>
       )}
-
-      <footer style={styles.footer}>
-        <p>⚡ Powered by Solana Blockchain</p>
-        <p style={styles.disclaimer}>Streaks are stored on-chain and tamper-proof</p>
-      </footer>
     </div>
   );
 };
 
+// Styles (inline for simplicity)
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
-    maxWidth: "480px",
+    maxWidth: 600,
     margin: "0 auto",
-    padding: "24px 20px",
-    fontFamily: "'Inter', system-ui, sans-serif",
-    color: "#f8fafc",
-    background: "#0f172a",
+    padding: 20,
+    fontFamily: "system-ui, -apple-system, sans-serif",
+    color: "#fff",
+    background: "#0f0f23",
     minHeight: "100vh",
   },
-  header: { textAlign: "center", marginBottom: "32px" },
-  logo: { display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginBottom: "8px" },
-  logoIcon: { fontSize: "32px" },
+  header: {
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  logo: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  logoIcon: {
+    fontSize: 40,
+  },
   title: {
-    fontSize: "1.75rem",
-    fontWeight: "800",
-    background: "linear-gradient(135deg, #f8fafc, #818cf8)",
+    fontSize: 32,
+    fontWeight: 700,
+    margin: 0,
+    background: "linear-gradient(90deg, #60a5fa, #a78bfa)",
     WebkitBackgroundClip: "text",
     WebkitTextFillColor: "transparent",
   },
-  subtitle: { color: "#94a3b8", fontSize: "0.95rem" },
-  card: {
-    background: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: "16px",
-    padding: "24px",
-    marginBottom: "16px",
+  subtitle: {
+    color: "#9ca3af",
+    fontSize: 14,
+    margin: 0,
   },
-  cardContent: { textAlign: "center" },
-  connectedInfo: { display: "flex", alignItems: "center", gap: "12px" },
-  walletIcon: { fontSize: "24px" },
-  walletLabel: { fontSize: "0.85rem", color: "#94a3b8" },
-  walletAddress: { fontFamily: "monospace", fontSize: "0.9rem" },
-  disconnectBtn: { padding: "8px 12px", background: "transparent", border: "1px solid #334155", borderRadius: "8px", cursor: "pointer", fontSize: "16px" },
-  errorBanner: { background: "#7f1d1d", border: "1px solid #ef4444", borderRadius: "12px", padding: "16px", marginBottom: "16px", color: "#fecaca" },
-  centerContent: { textAlign: "center" },
-  sectionTitle: { fontSize: "1.5rem", fontWeight: "700", marginBottom: "12px", color: "#f8fafc" },
-  sectionText: { color: "#94a3b8", marginBottom: "24px" },
-  primaryBtn: { background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", border: "none", borderRadius: "12px", padding: "16px 32px", fontSize: "1.1rem", fontWeight: "600", cursor: "pointer", width: "100%" },
-  streakCircle: { textAlign: "center", padding: "20px 0" },
-  streakNumber: { fontSize: "4rem", fontWeight: "800", display: "block", background: "linear-gradient(135deg, #fbbf24, #f59e0b)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-  streakLabel: { fontSize: "1rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "2px" },
-  claimBtn: { background: "linear-gradient(135deg, #10b981, #059669)", color: "white", border: "none", borderRadius: "12px", padding: "16px 24px", fontSize: "1rem", fontWeight: "600", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" },
-  statsGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "16px" },
-  statItem: { background: "#1e293b", border: "1px solid #334155", borderRadius: "12px", padding: "16px", textAlign: "center" },
-  statValue: { fontSize: "1.5rem", fontWeight: "700", color: "#f8fafc" },
-  statLabel: { fontSize: "0.8rem", color: "#94a3b8", marginTop: "4px" },
-  progressHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
-  progressTitle: { fontWeight: "600" },
-  progressPercent: { fontWeight: "700", color: "#fbbf24" },
-  progressBarContainer: { background: "#334155", borderRadius: "999px", height: "12px", overflow: "hidden" },
-  progressBar: { background: "linear-gradient(90deg, #fbbf24, #f59e0b, #d97706)", height: "100%", transition: "width 0.5s ease" },
-  progressText: { textAlign: "center", color: "#94a3b8", marginTop: "12px" },
-  badgesTitle: { fontSize: "1.25rem", fontWeight: "700", marginBottom: "16px" },
-  badgesGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" },
-  badgeItem: { background: "#1e293b", border: "2px solid #334155", borderRadius: "12px", padding: "16px", textAlign: "center" },
-  badgeIcon: { fontSize: "2rem", display: "block", marginBottom: "8px" },
-  badgeName: { fontSize: "0.85rem", fontWeight: "600", marginBottom: "4px" },
-  badgeDays: { fontSize: "0.75rem", color: "#94a3b8" },
-  badgeStatus: { marginTop: "8px", fontSize: "1rem" },
-  toast: { position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)", padding: "16px 24px", borderRadius: "12px", color: "white", fontWeight: "600", zIndex: 1000 },
-  footer: { textAlign: "center", marginTop: "32px", paddingTop: "24px", borderTop: "1px solid #334155" },
-  disclaimer: { fontSize: "0.8rem", color: "#64748b", marginTop: "8px" },
-  walletBtn: { background: "#6366f1", color: "white", border: "none", borderRadius: "8px", padding: "12px 24px", fontWeight: "600" },
+  card: {
+    background: "#1e1e2e",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    border: "1px solid #2d2d3d",
+  },
+  cardContent: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  connectedInfo: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+  },
+  walletIcon: {
+    fontSize: 24,
+  },
+  walletLabel: {
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+  walletAddress: {
+    fontSize: 14,
+    fontFamily: "monospace",
+  },
+  disconnectBtn: {
+    background: "#374151",
+    border: "none",
+    borderRadius: 8,
+    padding: "8px 12px",
+    cursor: "pointer",
+    fontSize: 16,
+  },
+  walletBtn: {
+    background: "#3b82f6",
+    border: "none",
+    borderRadius: 8,
+    padding: "12px 20px",
+    fontWeight: 600,
+    cursor: "pointer",
+    color: "#fff",
+  },
+  centerContent: {
+    textAlign: "center",
+    padding: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 600,
+    marginBottom: 12,
+    color: "#fff",
+  },
+  sectionText: {
+    color: "#9ca3af",
+    lineHeight: 1.6,
+    fontSize: 14,
+  },
+  primaryBtn: {
+    background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+    color: "#fff",
+    border: "none",
+    borderRadius: 12,
+    padding: "14px 28px",
+    fontSize: 16,
+    fontWeight: 600,
+    cursor: "pointer",
+    marginTop: 16,
+  },
+  streakCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: "50%",
+    background: "linear-gradient(135deg, #fbbf24, #f59e0b)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: "0 auto 20px",
+    boxShadow: "0 0 40px rgba(251, 191, 36, 0.3)",
+  },
+  streakNumber: {
+    fontSize: 48,
+    fontWeight: 700,
+    color: "#fff",
+    textShadow: "0 2px 4px rgba(0,0,0,0.2)",
+  },
+  streakLabel: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: 500,
+  },
+  claimBtn: {
+    background: "linear-gradient(135deg, #10b981, #059669)",
+    color: "#fff",
+    border: "none",
+    borderRadius: 12,
+    padding: "14px 28px",
+    fontSize: 16,
+    fontWeight: 600,
+    cursor: "pointer",
+    width: "100%",
+  },
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 12,
+    marginBottom: 16,
+  },
+  statItem: {
+    background: "#1e1e2e",
+    borderRadius: 12,
+    padding: 16,
+    textAlign: "center",
+    border: "1px solid #2d2d3d",
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: 700,
+    color: "#60a5fa",
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+  progressContainer: {
+    marginBottom: 20,
+  },
+  progressLabel: {
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    fontSize: 14,
+    color: "#9ca3af",
+  },
+  progressBar: {
+    height: 8,
+    background: "#2d2d3d",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    background: "linear-gradient(90deg, #10b981, #34d399)",
+    borderRadius: 4,
+    transition: "width 0.3s ease",
+  },
+  badgesSection: {
+    marginTop: 20,
+  },
+  badgesTitle: {
+    fontSize: 16,
+    fontWeight: 600,
+    marginBottom: 12,
+    color: "#fff",
+  },
+  badgesGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 12,
+  },
+  badge: {
+    background: "#1e1e2e",
+    borderRadius: 12,
+    padding: 16,
+    textAlign: "center",
+    transition: "transform 0.2s, opacity 0.2s",
+  },
+  badgeIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  badgeName: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: "#fff",
+    marginBottom: 4,
+  },
+  badgeDays: {
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+  historyItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "12px 0",
+    borderBottom: "1px solid #2d2d3d",
+  },
+  historyLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+  },
+  historyValue: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: 500,
+  },
+  stepsList: {
+    color: "#9ca3af",
+    paddingLeft: 20,
+    lineHeight: 2,
+    fontSize: 14,
+  },
+  rulesList: {
+    color: "#9ca3af",
+    paddingLeft: 20,
+    lineHeight: 2,
+    fontSize: 14,
+  },
+  errorBanner: {
+    background: "#fee2e2",
+    color: "#dc2626",
+    padding: "12px 16px",
+    borderRadius: 8,
+    marginBottom: 16,
+    fontSize: 14,
+  },
+  messageBanner: {
+    color: "#fff",
+    padding: "12px 16px",
+    borderRadius: 8,
+    marginBottom: 16,
+    fontSize: 14,
+    fontWeight: 500,
+  },
 };
+
+export default StreakComponent;

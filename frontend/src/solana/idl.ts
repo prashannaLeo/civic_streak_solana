@@ -52,4 +52,7 @@ export const civicStreakIdl = {
     { code: 6000, name: "AlreadyClaimedToday", msg: "You have already claimed your civic action for today. Come back tomorrow!" },
     { code: 6001, name: "StreakExpired", msg: "Your streak has expired. Start a new streak today!" },
   ],
+  metadata: {
+    address: "ChNrscvcMYLVxwcrS1ukyGTXZ16U7VZ71Vv573Ue6W6s",
+  },
 };
