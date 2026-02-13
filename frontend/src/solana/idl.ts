@@ -1,10 +1,13 @@
 // IDL for Civic Streak Anchor Program (Anchor 0.32.x format)
 // Program ID is read from VITE_CIVIC_STREAK_PROGRAM_ID in .env
-import { Program } from "@coral-xyz/anchor";
 
 export const civicStreakIdl = {
   version: "0.1.0",
   name: "civic_streak",
+  // Program ID will be set dynamically in client.ts
+  metadata: {
+    address: "", // Set dynamically
+  },
   instructions: [
     {
       name: "initializeUserStreak",
@@ -64,4 +67,7 @@ export const civicStreakIdl = {
       msg: "Your streak has expired. Start a new streak today!",
     },
   ],
+  metadata: {
+    address: "ChNrscvcMYLVxwcrS1ukyGTXZ16U7VZ71Vv573Ue6W6s",
+  },
 };

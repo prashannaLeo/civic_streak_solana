@@ -133,6 +133,7 @@ export const StreakComponent: React.FC = () => {
     lastActionDate: new Date(),
   });
 
+  // State
   const [loading, setLoading] = useState(false);
   const [transactionHash, setTransactionHash] = useState<string | null>(null);
   const [message, setMessage] = useState<{
@@ -224,6 +225,7 @@ export const StreakComponent: React.FC = () => {
     setConnectionStage("Preparing transaction...");
     setMessage(null);
     setError(null);
+    setMessage(null);
 
     try {
       // Get the stake PDA
@@ -345,6 +347,7 @@ export const StreakComponent: React.FC = () => {
     setShowActionMenu(false);
     setMessage(null);
     setError(null);
+    setMessage(null);
 
     try {
       // Get the stake PDA
