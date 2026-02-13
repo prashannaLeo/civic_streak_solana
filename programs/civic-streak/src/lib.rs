@@ -24,7 +24,7 @@ const STREAK_WINDOW_SECONDS: i64 = 48 * 60 * 60;
 const DAY_SECONDS: i64 = 24 * 60 * 60;
 
 /// Program ID
-declare_id!("ChNrscvcMYLVxwcrS1ukyGTXZ16U7VZ71Vv573Ue6W6s");
+declare_id!("6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8");
 
 #[program]
 pub mod civic_streak {

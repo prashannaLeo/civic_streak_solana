@@ -67,7 +67,4 @@ export const civicStreakIdl = {
       msg: "Your streak has expired. Start a new streak today!",
     },
   ],
-  metadata: {
-    address: "ChNrscvcMYLVxwcrS1ukyGTXZ16U7VZ71Vv573Ue6W6s",
-  },
 };
