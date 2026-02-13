@@ -116,9 +116,9 @@ export const StreakComponent: React.FC = () => {
         setHasAccount(false);
       }
       setError(null);
-    } catch (err) {
+    } catch (err: any) {
+      setError("Failed to fetch streak data");
       console.error("Error fetching streak:", err);
-      setError("Failed to fetch streak data from blockchain");
     }
   }, [publicKey, connection]);
 
@@ -827,3 +827,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginTop: "12px",
   },
 };
+
+export default StreakComponent;

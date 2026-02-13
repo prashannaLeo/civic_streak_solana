@@ -2,6 +2,8 @@
 import {
   Connection,
   PublicKey,
+  Transaction,
+  TransactionInstruction,
   SystemProgram,
   Transaction,
   TransactionInstruction,
@@ -79,7 +81,7 @@ export const initializeUserStreak = async (
   }
 };
 
-// Record daily engagement
+// Record daily engagement (raw transaction)
 export const recordDailyEngagement = async (
   connection: Connection,
   wallet: any,
