@@ -6,14 +6,22 @@ import {
   TransactionInstruction,
   SystemProgram,
 } from "@solana/web3.js";
+import { Buffer } from "buffer";
 
 // Program ID - read from environment variable
 const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
     import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
+    : "6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8"
 );
+
+// PDA seed - must match the Anchor program
+const PDA_SEED = "streak_final_2024";
+
+// Instruction discriminators
+const DISC_INITIALIZE = Buffer.from([158, 187, 121, 133, 40, 112, 185, 26]); // initialize_user_streak
+const DISC_RECORD = Buffer.from([77, 39, 209, 189, 54, 87, 223, 156]); // record_daily_engagement
 
 export interface UserStreakData {
   user: string;
@@ -39,10 +47,28 @@ export const MILESTONES: Milestone[] = [
 // Get PDA for user streak account
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("streak_v3"), userPubkey.toBuffer()],
-    programPublicKey,
+    [Buffer.from(PDA_SEED), userPubkey.toBuffer()],
+    PROGRAM_ID
   );
   return pda;
+};
+
+// Build instruction for program
+const buildInstruction = (
+  userPubkey: PublicKey,
+  discriminator: Buffer,
+): TransactionInstruction => {
+  const streakPDA = getUserStreakPDA(userPubkey);
+
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: userPubkey, isSigner: true, isWritable: true },
+      { pubkey: streakPDA, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data: discriminator,
+  });
 };
 
 // Initialize streak account
@@ -50,85 +76,52 @@ export const initializeUserStreak = async (
   connection: Connection,
   wallet: any,
   userPubkey: PublicKey,
-  discriminator: Buffer,
-): TransactionInstruction => {
-  const streakPDA = getUserStreakPDA(userPubkey);
-  const programId = new PublicKey(PROGRAM_ID);
-
-  // Create instruction data: 0 for initialize_user_streak
-  const instructionData = Buffer.from([0]);
-
-  const instruction = new TransactionInstruction({
-    keys: [
-      { pubkey: userPubkey, isSigner: true, isWritable: true },
-      { pubkey: streakPDA, isSigner: false, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId,
-    data: instructionData,
-  });
-
-// Initialize streak account (raw transaction, no Anchor Program client)
-export const initializeStreak = async (
-  connection: Connection,
-  wallet: anchor.Wallet | any,
-  userPubkey: PublicKey,
 ): Promise<string> => {
-  const provider = new anchor.AnchorProvider(connection as any, wallet, {
-    commitment: "confirmed",
-  });
-
-  const tx = new Transaction().add(
-    buildInstruction(userPubkey, DISC_INITIALIZE),
+  const transaction = new Transaction().add(
+    buildInstruction(userPubkey, DISC_INITIALIZE)
   );
 
-  if (wallet.signTransaction) {
-    const signedTransaction = await wallet.signTransaction(transaction);
-    const signature = await connection.sendRawTransaction(
-      signedTransaction.serialize(),
-    );
-    return signature;
-  } else {
+  // Get wallet adapter from wallet-adapter context
+  const walletAdapter = wallet?.adapter || wallet;
+
+  if (!walletAdapter?.signTransaction) {
     throw new Error("Wallet does not support signing transactions");
   }
+
+  const signedTx = await walletAdapter.signTransaction(transaction);
+  const signature = await connection.sendRawTransaction(
+    signedTx.serialize()
+  );
+
+  return signature;
 };
 
-// Record daily engagement (raw transaction)
+// Record daily engagement
 export const recordDailyEngagement = async (
   connection: Connection,
-  wallet: anchor.Wallet | any,
+  wallet: any,
   userPubkey: PublicKey,
 ): Promise<string> => {
-  const provider = new anchor.AnchorProvider(connection as any, wallet, {
-    commitment: "confirmed",
-  });
+  const transaction = new Transaction().add(
+    buildInstruction(userPubkey, DISC_RECORD)
+  );
 
-  const tx = new Transaction().add(buildInstruction(userPubkey, DISC_RECORD));
+  // Get wallet adapter from wallet-adapter context
+  const walletAdapter = wallet?.adapter || wallet;
 
-  const instruction = new TransactionInstruction({
-    keys: [
-      { pubkey: userPubkey, isSigner: true, isWritable: true },
-      { pubkey: streakPDA, isSigner: false, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId,
-    data: instructionData,
-  });
-
-  const transaction = new Transaction().add(instruction);
-
-  if (wallet.signTransaction) {
-    const signedTransaction = await wallet.signTransaction(transaction);
-    const signature = await connection.sendRawTransaction(
-      signedTransaction.serialize(),
-    );
-    return signature;
-  } else {
+  if (!walletAdapter?.signTransaction) {
     throw new Error("Wallet does not support signing transactions");
   }
+
+  const signedTx = await walletAdapter.signTransaction(transaction);
+  const signature = await connection.sendRawTransaction(
+    signedTx.serialize()
+  );
+
+  return signature;
 };
 
-// Fetch user streak data
+// Fetch user streak data from blockchain
 export const fetchUserStreakData = async (
   connection: Connection,
   userPubkey: PublicKey,
@@ -136,19 +129,25 @@ export const fetchUserStreakData = async (
   const streakPDA = getUserStreakPDA(userPubkey);
 
   try {
-    const accountInfo = await connection.getParsedAccountInfo(streakPDA);
+    const accountInfo = await connection.getAccountInfo(streakPDA);
 
-    if (!accountInfo.value) {
+    if (!accountInfo) {
       return null;
     }
 
-    const data = accountInfo.value.data as any;
+    // Manually decode account data (48 bytes total)
+    const data = accountInfo.data;
+    const streakCount = Number(data.readBigUInt64LE(8));
+    const lastInteractionTs = Number(data.readBigInt64LE(16));
+    const createdTs = Number(data.readBigInt64LE(24));
+    const milestoneClaimed = Number(data.readBigUInt64LE(32));
+
     return {
-      user: data.user.toString(),
-      streakCount: Number(data.streakCount),
-      lastInteractionTs: Number(data.lastInteractionTs),
-      createdTs: Number(data.createdTs),
-      milestoneClaimed: Number(data.milestoneClaimed),
+      user: userPubkey.toString(),
+      streakCount,
+      lastInteractionTs,
+      createdTs,
+      milestoneClaimed,
     };
   } catch (error) {
     console.error("Error fetching streak data:", error);
@@ -159,7 +158,9 @@ export const fetchUserStreakData = async (
 // Check if user has a streak account
 export const hasStreakAccount = async (
   connection: Connection,
-  signature: string,
-): Promise<void> => {
-  await connection.confirmTransaction(signature, "confirmed");
+  userPubkey: PublicKey,
+): Promise<boolean> => {
+  const streakPDA = getUserStreakPDA(userPubkey);
+  const accountInfo = await connection.getAccountInfo(streakPDA);
+  return accountInfo !== null;
 };

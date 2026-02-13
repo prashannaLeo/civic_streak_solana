@@ -13,7 +13,9 @@ import {
 import { Connection } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import {
-  fetchStreakData,
+  fetchUserStreakData,
+  initializeUserStreak,
+  recordDailyEngagement,
   getUserStreakPDA,
   UserStreakData,
 } from "../solana/client";
@@ -101,7 +103,7 @@ const fetchStreakDataFromChain = async (
   createdTs: number;
 } | null> => {
   try {
-    const data = await fetchStreakData(connection, userPubkey);
+    const data = await fetchUserStreakData(connection, userPubkey);
     if (data) {
       return {
         streakCount: data.streakCount,

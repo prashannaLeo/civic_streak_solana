@@ -1,10 +1,9 @@
 import { useCallback, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { AnchorProvider } from "@coral-xyz/anchor";
 import {
   initializeUserStreak,
   recordDailyEngagement,
-  getUserStreak,
+  fetchUserStreakData,
 } from "../solana/client";
 
 export interface UserStreakData {
@@ -18,16 +17,13 @@ export interface UserStreakData {
 export const useCivicStreak = () => {
   const { connection } = useConnection();
   const wallet = useWallet();
+
+  const [streakData, setStreakData] = useState<UserStreakData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [streakData, setStreakData] = useState<UserStreakData | null>(null);
 
-  // Initialize streak account
-  const initializeStreak = useCallback(async () => {
-    if (!wallet.publicKey || !wallet.signTransaction) {
-      setError("Wallet not connected");
-      return;
-    }
+  const initialize = useCallback(async () => {
+    if (!wallet.publicKey) return;
 
     setLoading(true);
     setError(null);
@@ -41,25 +37,21 @@ export const useCivicStreak = () => {
       console.log("Transaction signature:", tx);
 
       // Fetch updated streak data
-      const data = await getUserStreak(connection, wallet.publicKey);
+      const data = await fetchUserStreakData(connection, wallet.publicKey);
       setStreakData(data);
 
       return tx;
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
       setError(errorMessage);
-      console.error("Initialize streak error:", err);
+      throw err;
     } finally {
       setLoading(false);
     }
-  }, [wallet, connection]);
+  }, [connection, wallet]);
 
-  // Record daily engagement
   const recordEngagement = useCallback(async () => {
-    if (!wallet.publicKey || !wallet.signTransaction) {
-      setError("Wallet not connected");
-      return;
-    }
+    if (!wallet.publicKey) return;
 
     setLoading(true);
     setError(null);
@@ -73,50 +65,45 @@ export const useCivicStreak = () => {
       console.log("Transaction signature:", tx);
 
       // Fetch updated streak data
-      const data = await getUserStreak(connection, wallet.publicKey);
+      const data = await fetchUserStreakData(connection, wallet.publicKey);
       setStreakData(data);
 
       return tx;
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
       setError(errorMessage);
-      console.error("Record engagement error:", err);
+      throw err;
     } finally {
       setLoading(false);
     }
-  }, [wallet, connection]);
+  }, [connection, wallet]);
 
-  // Fetch current streak data
-  const fetchStreakData = useCallback(async () => {
-    if (!wallet.publicKey) {
-      setError("Wallet not connected");
-      return;
-    }
+  const fetchStreak = useCallback(async () => {
+    if (!wallet.publicKey) return null;
 
     setLoading(true);
     setError(null);
 
     try {
-      const data = await getUserStreak(connection, wallet.publicKey);
+      const data = await fetchUserStreakData(connection, wallet.publicKey);
       setStreakData(data);
 
       return data;
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
       setError(errorMessage);
-      console.error("Fetch streak data error:", err);
+      throw err;
     } finally {
       setLoading(false);
     }
-  }, [wallet, connection]);
+  }, [connection, wallet]);
 
   return {
+    streakData,
     loading,
     error,
-    streakData,
-    initializeStreak,
+    initialize,
     recordEngagement,
-    fetchStreakData,
-    isConnected: wallet.connected,
+    fetchStreak,
   };
 };
