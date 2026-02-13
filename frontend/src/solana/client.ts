@@ -5,16 +5,15 @@ import {
   Transaction,
   TransactionInstruction,
   SystemProgram,
-  Transaction,
-  TransactionInstruction,
 } from "@solana/web3.js";
 
-// Program ID - only from .env (VITE_CIVIC_STREAK_PROGRAM_ID)
-const PROGRAM_ID = import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID;
-
-if (!PROGRAM_ID) {
-  throw new Error("Missing VITE_CIVIC_STREAK_PROGRAM_ID in frontend/.env");
-}
+// Program ID - read from environment variable
+const PROGRAM_ID = new PublicKey(
+  typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
+    import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
+);
 
 export interface UserStreakData {
   user: string;
@@ -41,7 +40,7 @@ export const MILESTONES: Milestone[] = [
 export const getUserStreakPDA = (userPubkey: PublicKey): PublicKey => {
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from("streak_v3"), userPubkey.toBuffer()],
-    new PublicKey(PROGRAM_ID),
+    programPublicKey,
   );
   return pda;
 };
@@ -51,7 +50,8 @@ export const initializeUserStreak = async (
   connection: Connection,
   wallet: any,
   userPubkey: PublicKey,
-): Promise<string> => {
+  discriminator: Buffer,
+): TransactionInstruction => {
   const streakPDA = getUserStreakPDA(userPubkey);
   const programId = new PublicKey(PROGRAM_ID);
 
@@ -68,7 +68,19 @@ export const initializeUserStreak = async (
     data: instructionData,
   });
 
-  const transaction = new Transaction().add(instruction);
+// Initialize streak account (raw transaction, no Anchor Program client)
+export const initializeStreak = async (
+  connection: Connection,
+  wallet: anchor.Wallet | any,
+  userPubkey: PublicKey,
+): Promise<string> => {
+  const provider = new anchor.AnchorProvider(connection as any, wallet, {
+    commitment: "confirmed",
+  });
+
+  const tx = new Transaction().add(
+    buildInstruction(userPubkey, DISC_INITIALIZE),
+  );
 
   if (wallet.signTransaction) {
     const signedTransaction = await wallet.signTransaction(transaction);
@@ -84,14 +96,14 @@ export const initializeUserStreak = async (
 // Record daily engagement (raw transaction)
 export const recordDailyEngagement = async (
   connection: Connection,
-  wallet: any,
+  wallet: anchor.Wallet | any,
   userPubkey: PublicKey,
 ): Promise<string> => {
-  const streakPDA = getUserStreakPDA(userPubkey);
-  const programId = new PublicKey(PROGRAM_ID);
+  const provider = new anchor.AnchorProvider(connection as any, wallet, {
+    commitment: "confirmed",
+  });
 
-  // Create instruction data: 1 for record_daily_engagement
-  const instructionData = Buffer.from([1]);
+  const tx = new Transaction().add(buildInstruction(userPubkey, DISC_RECORD));
 
   const instruction = new TransactionInstruction({
     keys: [
@@ -147,54 +159,7 @@ export const fetchUserStreakData = async (
 // Check if user has a streak account
 export const hasStreakAccount = async (
   connection: Connection,
-  userPubkey: PublicKey,
-): Promise<boolean> => {
-  const streakPDA = getUserStreakPDA(userPubkey);
-
-  try {
-    const accountInfo = await connection.getParsedAccountInfo(streakPDA);
-    return accountInfo.value !== null;
-  } catch (error) {
-    return false;
-  }
+  signature: string,
+): Promise<void> => {
+  await connection.confirmTransaction(signature, "confirmed");
 };
-
-// Get current milestone
-export const getCurrentMilestone = (streakCount: number): Milestone | null => {
-  for (const milestone of [...MILESTONES].reverse()) {
-    if (streakCount >= milestone.days) {
-      return milestone;
-    }
-  }
-  return null;
-};
-
-// Get next milestone
-export const getNextMilestone = (streakCount: number): Milestone | null => {
-  for (const milestone of MILESTONES) {
-    if (streakCount < milestone.days) {
-      return milestone;
-    }
-  }
-  return null;
-};
-
-// Calculate days until next milestone
-export const daysUntilNextMilestone = (streakCount: number): number => {
-  const next = getNextMilestone(streakCount);
-  return next ? next.days - streakCount : 0;
-};
-
-// Get milestone progress percentage
-export const getMilestoneProgress = (
-  streakCount: number,
-  milestone: Milestone,
-): number => {
-  const prevDays = MILESTONES[MILESTONES.indexOf(milestone) - 1]?.days || 0;
-  const progress =
-    ((streakCount - prevDays) / (milestone.days - prevDays)) * 100;
-  return Math.min(100, Math.max(0, progress));
-};
-
-// Alias for fetchUserStreakData
-export const getUserStreak = fetchUserStreakData;

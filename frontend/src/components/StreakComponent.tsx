@@ -1,16 +1,63 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
+  WalletMultiButton,
+  WalletDisconnectButton,
+} from "@solana/wallet-adapter-react-ui";
+import {
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
+import { Buffer } from "buffer";
+import {
+  fetchStreakData,
   getUserStreakPDA,
-  initializeUserStreak,
-  recordDailyEngagement,
-  getUserStreak,
   UserStreakData,
-  MILESTONES,
 } from "../solana/client";
 
 // Milestone configuration with gamification
+const MILESTONES = [
+  {
+    days: 7,
+    name: "Civic Starter",
+    icon: "🌟",
+    color: "#fbbf24",
+    reward: "100 CIVIC Points",
+  },
+  {
+    days: 14,
+    name: "Active Citizen",
+    icon: "⭐",
+    color: "#60a5fa",
+    reward: "150 CIVIC Points",
+  },
+  {
+    days: 30,
+    name: "Civic Champion",
+    icon: "🏆",
+    color: "#a78bfa",
+    reward: "250 CIVIC Points",
+  },
+  {
+    days: 50,
+    name: "Democracy Hero",
+    icon: "🎖️",
+    color: "#f472b6",
+    reward: "500 CIVIC Points",
+  },
+  {
+    days: 100,
+    name: "Civic Legend",
+    icon: "👑",
+    color: "#fb923c",
+    reward: "1000 CIVIC Points",
+  },
+];
+
+// Actions that users can complete
 const CIVIC_ACTIONS = [
   { id: "vote", name: "Vote on Poll", icon: "🗳️", points: 10 },
   { id: "read", name: "Read Issue Summary", icon: "📰", points: 5 },
@@ -18,6 +65,23 @@ const CIVIC_ACTIONS = [
   { id: "discuss", name: "Join Discussion", icon: "💬", points: 12 },
 ];
 
+// Program ID - should match the deployed program
+const PROGRAM_ID = new PublicKey(
+  typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
+    import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
+    : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
+);
+
+// Discriminators for the program instructions
+const DISCRIMINATOR_INITIALIZE = Buffer.from([
+  0x9d, 0x98, 0x88, 0x79, 0x0c, 0xa2, 0x38, 0x45,
+]);
+const DISCRIMINATOR_RECORD = Buffer.from([
+  0x4a, 0xd6, 0x04, 0xcc, 0x54, 0xce, 0x9b, 0xbf,
+]);
+
+// Streak data
 interface StreakData {
   streakCount: number;
   totalCivicPoints: number;
@@ -27,43 +91,82 @@ interface StreakData {
   lastActionDate: Date;
 }
 
+// Fetch streak data from blockchain
+const fetchStreakDataFromChain = async (
+  connection: Connection,
+  userPubkey: PublicKey,
+): Promise<{
+  streakCount: number;
+  lastInteractionTs: number;
+  createdTs: number;
+} | null> => {
+  try {
+    const data = await fetchStreakData(connection, userPubkey);
+    if (data) {
+      return {
+        streakCount: data.streakCount,
+        lastInteractionTs: data.lastInteractionTs,
+        createdTs: data.createdTs,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error("Error fetching streak data:", err);
+    return null;
+  }
+};
+
 export const StreakComponent: React.FC = () => {
-  const { publicKey, connected, disconnect, wallet } = useWallet();
   const { connection } = useConnection();
+  const { publicKey, wallet, connected, connecting, disconnect } = useWallet();
+
+  // Wallet state - derive from actual wallet
+  const [walletAddress, setWalletAddress] = useState<string>("");
+  const [walletName, setWalletName] = useState<string>("");
+
+  const [streakData, setStreakData] = useState<StreakData>({
+    streakCount: 0,
+    totalCivicPoints: 0,
+    badges: [],
+    completedActions: [],
+    createdAt: new Date(),
+    lastActionDate: new Date(),
+  });
 
   // State
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [streakData, setStreakData] = useState<UserStreakData | null>(null);
-  const [localStreakData, setLocalStreakData] = useState<StreakData | null>(
-    null,
-  );
-  const [hasAccount, setHasAccount] = useState(false);
+  const [transactionHash, setTransactionHash] = useState<string | null>(null);
   const [message, setMessage] = useState<{
     text: string;
     type: "success" | "error" | "info" | "achievement";
   } | null>(null);
   const [showActionMenu, setShowActionMenu] = useState(false);
+  const [connectionStage, setConnectionStage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const animationRef = useRef<number>();
   const [particles, setParticles] = useState<
     Array<{ id: number; x: number; y: number; size: number; color: string }>
   >([]);
-  const animationRef = useRef<number>();
 
-  // Get PDA
-  const getPDA = useCallback((userPublicKey: any) => {
-    return getUserStreakPDA(userPublicKey);
-  }, []);
+  // Sync wallet state
+  useEffect(() => {
+    if (connected && publicKey) {
+      setWalletAddress(publicKey.toString());
+      setWalletName(wallet?.adapter?.name || "Wallet");
+      setMessage({
+        text: `✅ Connected to ${wallet?.adapter?.name || "Wallet"}!`,
+        type: "success",
+      });
+      createParticles(window.innerWidth / 2, window.innerHeight / 2);
+    } else if (!connected && walletAddress) {
+      // Wallet disconnected
+      setWalletAddress("");
+      setWalletName("");
+    }
+  }, [connected, publicKey, wallet]);
 
-  // Show message
-  const showAppMessage = (
-    text: string,
-    type: "success" | "error" | "info" | "achievement",
-  ) => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage(null), 5000);
-  };
-
-  // Particle animation
+  // Particle animation for achievements
   const createParticles = useCallback((x: number, y: number) => {
     const newParticles = Array.from({ length: 25 }, (_, i) => ({
       id: Date.now() + i,
@@ -93,178 +196,354 @@ export const StreakComponent: React.FC = () => {
     });
   }, []);
 
-  // Fetch streak data from blockchain
-  const fetchAndSetStreakData = useCallback(async () => {
-    if (!publicKey) return;
+  // Disconnect wallet
+  const handleDisconnect = useCallback(async () => {
+    try {
+      await disconnect();
+      setStreakData({
+        streakCount: 0,
+        totalCivicPoints: 0,
+        badges: [],
+        completedActions: [],
+        createdAt: new Date(),
+        lastActionDate: new Date(),
+      });
+      setMessage(null);
+    } catch (err) {
+      console.error("Disconnect error:", err);
+    }
+  }, [disconnect]);
+
+  // Start streak transaction - REAL Solana transaction
+  const startStreak = async () => {
+    if (!connected || !publicKey) {
+      setError("Please connect your wallet first");
+      return;
+    }
+
+    setLoading(true);
+    setConnectionStage("Preparing transaction...");
+    setMessage(null);
+    setError(null);
+    setMessage(null);
 
     try {
-      const data = await getUserStreak(connection, publicKey);
-      if (data) {
-        setStreakData(data);
-        setLocalStreakData({
-          streakCount: data.streakCount,
-          totalCivicPoints: data.milestoneClaimed * 50,
+      // Get the stake PDA
+      const streakPDA = getUserStreakPDA(publicKey);
+
+      // Create instruction
+      const instruction = new TransactionInstruction({
+        keys: [
+          {
+            pubkey: publicKey,
+            isSigner: true,
+            isWritable: true,
+          },
+          {
+            pubkey: streakPDA,
+            isSigner: false,
+            isWritable: true,
+          },
+          {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false,
+          },
+        ],
+        programId: PROGRAM_ID,
+        data: DISCRIMINATOR_INITIALIZE,
+      });
+
+      const transaction = new Transaction().add(instruction);
+      const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Send REAL transaction using wallet with retry
+      setConnectionStage("Sending transaction...");
+
+      let sig: string | null = null;
+      const maxRetries = 3;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          setConnectionStage(
+            `Sending transaction (attempt ${attempt}/${maxRetries})...`,
+          );
+          const txResult = await wallet?.adapter?.sendTransaction(
+            transaction,
+            connection,
+            {
+              skipPreflight: false,
+              maxRetries: 5,
+            },
+          );
+          if (txResult) {
+            sig = txResult;
+            break;
+          }
+        } catch (err: any) {
+          console.error(`Attempt ${attempt} failed:`, err);
+          if (attempt === maxRetries) {
+            throw new Error(
+              `Transaction failed after ${maxRetries} attempts: ${err.message}`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+
+      if (sig) {
+        setTransactionHash(sig);
+        setConnectionStage("Confirming transaction...");
+
+        // Wait for confirmation with longer timeout
+        try {
+          await connection.confirmTransaction(sig, "finalized");
+        } catch (confirmErr) {
+          // Try with confirmed commitment instead
+          await connection.confirmTransaction(sig, "confirmed");
+        }
+
+        setStreakData({
+          streakCount: 1,
+          totalCivicPoints: 10,
           badges: [],
           completedActions: [],
-          createdAt: new Date(data.createdTs * 1000),
-          lastActionDate: new Date(data.lastInteractionTs * 1000),
+          createdAt: new Date(),
+          lastActionDate: new Date(),
         });
-        setHasAccount(true);
-      } else {
-        setStreakData(null);
-        setLocalStreakData(null);
-        setHasAccount(false);
+
+        setMessage({
+          text: `🎉 Streak initialized on Solana! Tx: ${sig.slice(0, 8)}...`,
+          type: "success",
+        });
+
+        createParticles(window.innerWidth / 2, window.innerHeight / 2);
+
+        setTimeout(() => setTransactionHash(null), 5000);
       }
-      setError(null);
     } catch (err: any) {
-      setError("Failed to fetch streak data");
-      console.error("Error fetching streak:", err);
-    }
-  }, [publicKey, connection]);
-
-  // Auto-fetch when wallet connects
-  useEffect(() => {
-    if (connected && publicKey) {
-      fetchAndSetStreakData();
-    }
-  }, [connected, publicKey, fetchAndSetStreakData]);
-
-  // Cleanup animation
-  useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
-
-  // Initialize streak account
-  const handleInitializeStreak = async () => {
-    if (!publicKey) {
-      setError("Wallet not connected");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const streakPDA = getPDA(publicKey);
-      const existingAccount = await connection.getAccountInfo(streakPDA);
-
-      if (existingAccount) {
-        console.log("Account already exists!");
-        setHasAccount(true);
-        await fetchAndSetStreakData();
-        showAppMessage("📊 Streak account already exists!", "info");
-        setLoading(false);
-        return;
-      }
-
-      console.log("Sending initializeUserStreak transaction...");
-      const signature = await initializeUserStreak(
-        connection,
-        wallet,
-        publicKey,
-      );
-      console.log("Signature:", signature);
-
-      await fetchAndSetStreakData();
-      showAppMessage("🎉 Streak account created!", "success");
-      createParticles(window.innerWidth / 2, window.innerHeight / 2);
-    } catch (err: any) {
-      console.error("Error initializing streak:", err);
-      setError(err.message || "Failed to initialize streak");
-      showAppMessage(err.message || "Failed to initialize streak", "error");
+      console.error("Transaction error:", err);
+      setError(err.message || "Error initializing streak. Please try again.");
+      setMessage({
+        text: err.message || "Error initializing streak. Please try again.",
+        type: "error",
+      });
     } finally {
+      setConnectionStage(null);
       setLoading(false);
     }
   };
 
-  // Record daily engagement
-  const handleRecordEngagement = async () => {
-    if (!publicKey) {
-      setError("Wallet not connected");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      console.log("Sending recordDailyEngagement transaction...");
-      const signature = await recordDailyEngagement(
-        connection,
-        wallet,
-        publicKey,
-      );
-      console.log("Signature:", signature);
-
-      await fetchAndSetStreakData();
-      showAppMessage("🔥 Daily civic action recorded!", "success");
-      createParticles(window.innerWidth / 2, window.innerHeight / 2);
-    } catch (err: any) {
-      console.error("Error recording engagement:", err);
-
-      if (err.message?.includes("already claimed")) {
-        showAppMessage("⏰ You've already claimed today!", "error");
-      } else {
-        setError(err.message || "Failed to record engagement");
-        showAppMessage(err.message || "Failed to record engagement", "error");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Complete action
+  // Complete action transaction - REAL Solana transaction
   const completeAction = async (action: (typeof CIVIC_ACTIONS)[0]) => {
+    if (!connected || !publicKey) {
+      setError("Please connect your wallet first");
+      return;
+    }
+
     setLoading(true);
     setShowActionMenu(false);
+    setMessage(null);
+    setError(null);
+    setMessage(null);
 
     try {
-      await handleRecordEngagement();
+      // Get the stake PDA
+      const streakPDA = getUserStreakPDA(publicKey);
 
-      const newStreak = (localStreakData?.streakCount || 0) + 1;
-      const pointsEarned = action.points;
-
-      // Update local state
-      setLocalStreakData((prev) => ({
-        ...prev!,
-        streakCount: newStreak,
-        totalCivicPoints: (prev?.totalCivicPoints || 0) + pointsEarned,
-        completedActions: [
-          ...(prev?.completedActions || []),
-          { id: action.id, date: new Date() },
+      const instruction = new TransactionInstruction({
+        keys: [
+          {
+            pubkey: publicKey,
+            isSigner: true,
+            isWritable: true,
+          },
+          {
+            pubkey: streakPDA,
+            isSigner: false,
+            isWritable: true,
+          },
+          {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false,
+          },
         ],
-        lastActionDate: new Date(),
-      }));
+        programId: PROGRAM_ID,
+        data: DISCRIMINATOR_RECORD,
+      });
 
-      showAppMessage(
-        `✅ ${action.name} completed! +${action.points} points!`,
-        "success",
-      );
+      const transaction = new Transaction().add(instruction);
+      const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Send REAL transaction using wallet with retry
+      setConnectionStage("Sending transaction...");
+
+      let sig: string | null = null;
+      const maxRetries = 3;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          setConnectionStage(
+            `Sending transaction (attempt ${attempt}/${maxRetries})...`,
+          );
+          const txResult = await wallet?.adapter?.sendTransaction(
+            transaction,
+            connection,
+            {
+              skipPreflight: false,
+              maxRetries: 5,
+            },
+          );
+          if (txResult) {
+            sig = txResult;
+            break;
+          }
+        } catch (err: any) {
+          console.error(`Attempt ${attempt} failed:`, err);
+          if (attempt === maxRetries) {
+            throw new Error(
+              `Transaction failed after ${maxRetries} attempts: ${err.message}`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+
+      if (sig) {
+        setTransactionHash(sig);
+        setConnectionStage("Confirming transaction...");
+
+        // Wait for confirmation
+        let confirmed = false;
+        try {
+          await connection.confirmTransaction(sig, "finalized");
+          confirmed = true;
+        } catch (confirmErr) {
+          // Try with confirmed commitment instead
+          try {
+            await connection.confirmTransaction(sig, "confirmed");
+            confirmed = true;
+          } catch (err2) {
+            console.warn(
+              "Transaction confirmation timeout, but may have succeeded:",
+              sig,
+            );
+          }
+        }
+
+        // Fetch the actual updated streak data from blockchain
+        setConnectionStage("Fetching updated streak data...");
+
+        // Retry fetching streak data up to 3 times with delay
+        let updatedStreakData = null;
+        for (let retry = 0; retry < 3; retry++) {
+          updatedStreakData = await fetchStreakDataFromChain(
+            connection,
+            publicKey,
+          );
+          if (updatedStreakData) break;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2000 * (retry + 1)),
+          );
+        }
+
+        if (updatedStreakData) {
+          const now = new Date();
+
+          // Calculate streak based on actual blockchain data
+          const lastAction = new Date(
+            updatedStreakData.lastInteractionTs * 1000,
+          );
+          const hoursSinceLast =
+            (now.getTime() - lastAction.getTime()) / (1000 * 60 * 60);
+
+          let newStreakCount = updatedStreakData.streakCount;
+
+          // Check if streak was reset (within 48h window should continue, else reset)
+          if (hoursSinceLast > 48 && updatedStreakData.streakCount > 1) {
+            // The blockchain already reset the streak, use the value as-is
+            newStreakCount = updatedStreakData.streakCount;
+          }
+
+          const newBadges = [...streakData.badges];
+          let bonusPoints = 0;
+
+          // Check for new milestone badges
+          MILESTONES.forEach((milestone) => {
+            if (
+              newStreakCount === milestone.days &&
+              !newBadges.includes(milestone.name)
+            ) {
+              newBadges.push(milestone.name);
+              bonusPoints += 50;
+              setMessage({
+                text: `🎊 ${milestone.name} Badge Earned! +50 bonus!`,
+                type: "achievement",
+              });
+              createParticles(window.innerWidth / 2, window.innerHeight / 2);
+            }
+          });
+
+          const pointsEarned =
+            action.points + (bonusPoints > 0 ? bonusPoints : 0);
+
+          setStreakData({
+            ...streakData,
+            streakCount: newStreakCount,
+            totalCivicPoints: streakData.totalCivicPoints + pointsEarned,
+            badges: newBadges,
+            completedActions: [
+              ...streakData.completedActions,
+              { id: action.id, date: now },
+            ],
+            lastActionDate: now,
+          });
+
+          if (!bonusPoints) {
+            setMessage({
+              text: `✅ ${action.name} completed! +${action.points} points! Streak: ${newStreakCount}`,
+              type: "success",
+            });
+          }
+        } else {
+          // Fallback if fetch fails - increment local streak
+          const now = new Date();
+          setStreakData({
+            ...streakData,
+            streakCount: streakData.streakCount + 1,
+            totalCivicPoints: streakData.totalCivicPoints + action.points,
+            completedActions: [
+              ...streakData.completedActions,
+              { id: action.id, date: now },
+            ],
+            lastActionDate: now,
+          });
+          setMessage({
+            text: `✅ ${action.name} completed! +${action.points} points!`,
+            type: "success",
+          });
+        }
+
+        setTimeout(() => setTransactionHash(null), 5000);
+      }
     } catch (err: any) {
-      console.error("Error:", err);
-      showAppMessage(err.message || "Error recording action", "error");
+      console.error("Transaction error:", err);
+      setError(err.message || "Error recording action. Please try again.");
+      setMessage({
+        text: err.message || "Error recording action. Please try again.",
+        type: "error",
+      });
     } finally {
+      setConnectionStage(null);
       setLoading(false);
     }
   };
 
-  // Calculate milestones
-  const streak = localStreakData?.streakCount || streakData?.streakCount || 0;
-  const nextMilestone =
-    MILESTONES.find((m) => streak < m.days) ||
-    MILESTONES[MILESTONES.length - 1];
-  const progressPercent = Math.min((streak / nextMilestone.days) * 100, 100);
-  const earnedBadges = MILESTONES.filter((m) => streak >= m.days).map(
-    (m) => m.days,
-  );
-
-  // Format date
   const formatDate = (date: Date) => {
     return date.toLocaleDateString(undefined, {
       month: "short",
@@ -274,201 +553,511 @@ export const StreakComponent: React.FC = () => {
     });
   };
 
-  // Render
-  return (
-    <div style={styles.container}>
-      {/* Particles */}
-      {particles.map((p) => (
-        <div
-          key={p.id}
-          style={{
-            ...styles.particle,
-            left: p.x,
-            top: p.y,
-            width: p.size,
-            height: p.size,
-            background: p.color,
-          }}
-        />
-      ))}
+  useEffect(() => {
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, []);
 
-      <header style={styles.header}>
-        <div style={styles.logo}>
-          <span style={styles.logoIcon}>🏛️</span>
-          <h1 style={styles.title}>Civic Streak</h1>
+  // Render landing page when not connected
+  if (!connected) {
+    return (
+      <div className="landing-container">
+        <div className="particles">
+          {particles.map((p) => (
+            <div
+              key={p.id}
+              className="particle"
+              style={{
+                left: p.x,
+                top: p.y,
+                width: p.size,
+                height: p.size,
+                background: p.color,
+              }}
+            />
+          ))}
         </div>
-        <WalletMultiButton style={styles.walletButton} />
+
+        <div className="landing-content">
+          <div className="hero-section">
+            <div className="logo-animated">🏛️</div>
+            <h1>Civic Streak</h1>
+            <p className="tagline">
+              Build your civic engagement on Solana blockchain
+            </p>
+
+            <div className="features">
+              <div className="feature">
+                <span className="feature-icon">🔥</span>
+                <span>Daily Streaks</span>
+              </div>
+              <div className="feature">
+                <span className="feature-icon">🏆</span>
+                <span>NFT Badges</span>
+              </div>
+              <div className="feature">
+                <span className="feature-icon">🪙</span>
+                <span>CIVIC Points</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="connect-section">
+            <WalletMultiButton />
+            <p className="connect-note">
+              Connect your Phantom, Solflare, or other Solana wallet to start
+              building your civic streak!
+            </p>
+          </div>
+        </div>
+
+        <style>{`
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+
+          .landing-container {
+            min-height: 100vh;
+            width: 100%;
+            background: linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 50%, #1a1a2e 100%);
+            color: #fff;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+          }
+
+          .particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+          }
+
+          .particle {
+            position: absolute;
+            border-radius: 50%;
+            animation: particleFloat 3s ease-out forwards;
+          }
+
+          @keyframes particleFloat {
+            to {
+              transform: translateY(-200px) scale(0);
+              opacity: 0;
+            }
+          }
+
+          .landing-content {
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+            text-align: center;
+            z-index: 1;
+          }
+
+          .hero-section {
+            margin-bottom: 60px;
+          }
+
+          .logo-animated {
+            font-size: 80px;
+            margin-bottom: 24px;
+            animation: float 3s ease-in-out infinite;
+            display: inline-block;
+          }
+
+          @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-15px); }
+          }
+
+          h1 {
+            font-size: 56px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #fbbf24 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+          }
+
+          .tagline {
+            font-size: 20px;
+            color: #9ca3af;
+            margin-bottom: 40px;
+          }
+
+          .features {
+            display: flex;
+            justify-content: center;
+            gap: 32px;
+          }
+
+          .feature {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+            color: #d1d5db;
+          }
+
+          .feature-icon {
+            font-size: 24px;
+          }
+
+          .connect-section {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 32px;
+          }
+
+          .connect-button {
+            width: 100%;
+            padding: 18px 32px;
+            font-size: 18px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            transition: all 0.3s ease;
+          }
+
+          .connect-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4);
+          }
+
+          /* Wallet Multi Button Styles */
+          .wallet-adapter-button {
+            width: 100% !important;
+            padding: 18px 32px !important;
+            font-size: 18px !important;
+            font-weight: 600 !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            border: none !important;
+            border-radius: 16px !important;
+            color: white !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 12px !important;
+            transition: all 0.3s ease !important;
+            margin-bottom: 24px !important;
+          }
+
+          .wallet-adapter-button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4) !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+          }
+
+          .wallet-adapter-button-start-icon {
+            display: flex !important;
+            align-items: center !important;
+          }
+
+          .connect-icon {
+            font-size: 20px;
+          }
+
+          .socket-connection {
+            margin-bottom: 24px;
+          }
+
+          .socket-status {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+          }
+
+          .socket-icon {
+            width: 40px;
+            height: 40px;
+            position: relative;
+          }
+
+          .socket-pulse {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: #667eea;
+            animation: pulse 2s ease-in-out infinite;
+          }
+
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+          }
+
+          .socket-title {
+            font-weight: 600;
+            margin: 0;
+          }
+
+          .socket-stage {
+            font-size: 14px;
+            color: #9ca3af;
+            margin: 4px 0 0 0;
+          }
+
+          .socket-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+          }
+
+          .socket-progress {
+            height: 100%;
+            width: 60%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 2px;
+            animation: progress 2s ease-in-out infinite;
+          }
+
+          @keyframes progress {
+            0% { width: 20%; }
+            50% { width: 80%; }
+            100% { width: 20%; }
+          }
+
+          .connect-note {
+            font-size: 14px;
+            color: #9ca3af;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Render main dashboard when connected
+  return (
+    <div className="dashboard-container">
+      {/* Particles */}
+      <div className="particles">
+        {particles.map((p) => (
+          <div
+            key={p.id}
+            className="particle"
+            style={{
+              left: p.x,
+              top: p.y,
+              width: p.size,
+              height: p.size,
+              background: p.color,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Error message */}
+      {error && <div className="error-message">⚠️ {error}</div>}
+
+      {/* Header */}
+      <header className="header">
+        <div className="logo-small">🏛️</div>
+        <h1>Civic Streak</h1>
+        <div className="wallet-badge">
+          <span className="wallet-address">
+            {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}
+          </span>
+          <WalletDisconnectButton />
+        </div>
       </header>
 
-      {/* Messages */}
+      {/* Transaction notification */}
+      {transactionHash && (
+        <div className="transaction-notification">
+          <div className="tx-icon">⛓️</div>
+          <div className="tx-info">
+            <p className="tx-title">Transaction Confirmed!</p>
+            <p className="tx-hash">
+              {transactionHash.slice(0, 20)}...{transactionHash.slice(-12)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Connection stage */}
+      {connectionStage && (
+        <div className="connection-stage">
+          <div className="stage-spinner"></div>
+          <p>{connectionStage}</p>
+        </div>
+      )}
+
+      {/* Message */}
       {message && (
-        <div
-          style={{
-            ...styles.message,
-            background:
-              message.type === "success"
-                ? "#10b981"
-                : message.type === "error"
-                  ? "#ef4444"
-                  : message.type === "achievement"
-                    ? "#f59e0b"
-                    : "#6366f1",
-          }}
-        >
+        <div className={`message ${message.type}`}>
+          {message.type === "achievement" && "🏆 "}
           {message.text}
         </div>
       )}
 
-      {/* Error */}
-      {error && <div style={styles.error}>{error}</div>}
-
-      {!connected ? (
-        // Not connected
-        <div style={styles.card}>
-          <h2 style={styles.sectionTitle}>Connect Your Wallet</h2>
-          <p style={styles.sectionText}>
-            Connect your Phantom wallet to start building your civic streak!
-          </p>
-          <WalletMultiButton style={styles.connectButton}>
-            Connect Wallet
-          </WalletMultiButton>
+      {/* Main streak card */}
+      <div className="streak-card">
+        <div className="streak-glow"></div>
+        <div className="streak-main">
+          <div className="streak-flame">🔥</div>
+          <div className="streak-count">{streakData.streakCount}</div>
+          <div className="streak-label">Day Streak</div>
         </div>
-      ) : !hasAccount ? (
-        // No streak account
-        <div style={styles.card}>
-          <h2 style={styles.sectionTitle}>🚀 Start Your Civic Journey</h2>
-          <p style={styles.sectionText}>
-            Create your streak account on Solana blockchain!
-          </p>
-          <button
-            style={styles.primaryButton}
-            onClick={handleInitializeStreak}
-            disabled={loading}
-          >
-            {loading ? "Creating..." : "Initialize Streak Account"}
-          </button>
+
+        <div className="points-display">
+          <div className="points-icon">🪙</div>
+          <div className="points-value">{streakData.totalCivicPoints}</div>
+          <div className="points-label">CIVIC Points</div>
         </div>
-      ) : (
-        // Has streak account
-        <>
-          {/* Main streak card */}
-          <div style={styles.streakCard}>
-            <div style={styles.streakCircle}>
-              <span style={styles.streakNumber}>{streak}</span>
-              <span style={styles.streakLabel}>Day Streak</span>
-            </div>
-            <button
-              style={styles.claimButton}
-              onClick={handleRecordEngagement}
-              disabled={loading}
-            >
-              {loading ? "Processing..." : "📅 Mark Today's Civic Action"}
-            </button>
-          </div>
+      </div>
 
-          {/* Stats */}
-          <div style={styles.statsGrid}>
-            <div style={styles.statItem}>
-              <div style={styles.statValue}>{nextMilestone.days - streak}</div>
-              <div style={styles.statLabel}>Days to {nextMilestone.name}</div>
-            </div>
-            <div style={styles.statItem}>
-              <div style={styles.statValue}>{earnedBadges.length}</div>
-              <div style={styles.statLabel}>Badges Earned</div>
-            </div>
-            <div style={styles.statItem}>
-              <div style={styles.statValue}>
-                {localStreakData?.totalCivicPoints || 0}
-              </div>
-              <div style={styles.statLabel}>CIVIC Points</div>
-            </div>
+      {/* Stats grid */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-icon">📅</div>
+          <div className="stat-info">
+            <p className="stat-value">{formatDate(streakData.createdAt)}</p>
+            <p className="stat-label">Started</p>
           </div>
-
-          {/* Progress */}
-          <div style={styles.card}>
-            <div style={styles.progressHeader}>
-              <span style={styles.progressTitle}>
-                Progress to {nextMilestone.name}
-              </span>
-              <span style={styles.progressPercent}>
-                {progressPercent.toFixed(1)}%
-              </span>
-            </div>
-            <div style={styles.progressBarContainer}>
-              <div
-                style={{ ...styles.progressBar, width: `${progressPercent}%` }}
-              />
-            </div>
-            <p style={styles.progressText}>
-              {streak} / {nextMilestone.days} days
-            </p>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">✅</div>
+          <div className="stat-info">
+            <p className="stat-value">{streakData.completedActions.length}</p>
+            <p className="stat-label">Actions</p>
           </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">🏅</div>
+          <div className="stat-info">
+            <p className="stat-value">{streakData.badges.length}</p>
+            <p className="stat-label">Badges</p>
+          </div>
+        </div>
+      </div>
 
-          {/* Milestones */}
-          <h3 style={styles.badgesTitle}>🏆 Milestone Badges</h3>
-          <div style={styles.badgesGrid}>
-            {MILESTONES.map((m) => {
-              const earned = streak >= m.days;
+      {/* Action button */}
+      <button
+        className="action-button"
+        onClick={() => setShowActionMenu(true)}
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <div className="btn-spinner"></div>
+            Processing...
+          </>
+        ) : (
+          <>📝 Record Civic Action</>
+        )}
+      </button>
+
+      {/* Badges */}
+      {streakData.badges.length > 0 && (
+        <div className="badges-section">
+          <h3>🏆 Your Badges</h3>
+          <div className="badges-grid">
+            {streakData.badges.map((badgeName) => {
+              const milestone = MILESTONES.find((m) => m.name === badgeName);
               return (
                 <div
-                  key={m.days}
-                  style={{
-                    ...styles.badgeItem,
-                    borderColor: earned ? m.color : "#334155",
-                    opacity: earned ? 1 : 0.5,
-                  }}
+                  key={badgeName}
+                  className="badge earned"
+                  style={{ borderColor: milestone?.color }}
                 >
-                  <span style={styles.badgeIcon}>{earned ? m.icon : "🔒"}</span>
-                  <div style={styles.badgeName}>{m.name}</div>
-                  <div style={styles.badgeDays}>{m.days} days</div>
-                  <div style={styles.badgeStatus}>
-                    {earned ? "✅ Earned" : "🔒 Locked"}
-                  </div>
+                  <div className="badge-icon">{milestone?.icon}</div>
+                  <div className="badge-name">{badgeName}</div>
                 </div>
               );
             })}
           </div>
-
-          {/* Action button */}
-          <button
-            style={styles.actionButton}
-            onClick={() => setShowActionMenu(true)}
-            disabled={loading}
-          >
-            {loading ? "Processing..." : "📝 Record Civic Action"}
-          </button>
-        </>
+        </div>
       )}
 
-      {/* Action menu modal */}
+      {/* Milestones */}
+      <div className="milestones-section">
+        <h3>🎯 Milestones</h3>
+        <div className="milestones-list">
+          {MILESTONES.map((milestone) => (
+            <div
+              key={milestone.days}
+              className={`milestone ${streakData.streakCount >= milestone.days ? "earned" : "locked"}`}
+              style={{
+                borderColor:
+                  streakData.streakCount >= milestone.days
+                    ? milestone.color
+                    : "rgba(255,255,255,0.1)",
+              }}
+            >
+              <div
+                className="milestone-icon"
+                style={{
+                  background:
+                    streakData.streakCount >= milestone.days
+                      ? milestone.color
+                      : "rgba(255,255,255,0.1)",
+                }}
+              >
+                {milestone.icon}
+              </div>
+              <div className="milestone-info">
+                <p className="milestone-name">{milestone.name}</p>
+                <p className="milestone-days">{milestone.days} days</p>
+              </div>
+              {streakData.streakCount >= milestone.days && (
+                <div className="milestone-check">✓</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Action modal */}
       {showActionMenu && (
-        <div
-          style={styles.modalOverlay}
-          onClick={() => setShowActionMenu(false)}
-        >
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Choose an Action</h3>
-            <p style={styles.modalSubtitle}>
+        <div className="modal-overlay" onClick={() => setShowActionMenu(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Choose an Action</h3>
+            <p className="modal-subtitle">
               Complete a civic action to earn points
             </p>
 
-            {CIVIC_ACTIONS.map((action) => (
-              <button
-                key={action.id}
-                style={styles.actionItem}
-                onClick={() => completeAction(action)}
-                disabled={loading}
-              >
-                <span style={styles.actionIcon}>{action.icon}</span>
-                <div style={styles.actionInfo}>
-                  <p style={styles.actionName}>{action.name}</p>
-                  <p style={styles.actionPoints}>+{action.points} points</p>
-                </div>
-              </button>
-            ))}
+            <div className="action-list">
+              {CIVIC_ACTIONS.map((action) => (
+                <button
+                  key={action.id}
+                  className="action-item"
+                  onClick={() => completeAction(action)}
+                  disabled={loading}
+                >
+                  <span className="action-icon">{action.icon}</span>
+                  <div className="action-info">
+                    <p className="action-name">{action.name}</p>
+                    <p className="action-points">+{action.points} points</p>
+                  </div>
+                  <span className="action-arrow">→</span>
+                </button>
+              ))}
+            </div>
 
             <button
-              style={styles.modalClose}
+              className="modal-close"
               onClick={() => setShowActionMenu(false)}
             >
               Cancel
@@ -476,356 +1065,568 @@ export const StreakComponent: React.FC = () => {
           </div>
         </div>
       )}
+
+      <style>{`
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+
+        .dashboard-container {
+          min-height: 100vh;
+          width: 100%;
+          background: linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 50%, #1a1a2e 100%);
+          color: #fff;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+          position: relative;
+          overflow-x: hidden;
+        }
+
+        .particles {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          z-index: 1000;
+        }
+
+        .particle {
+          position: absolute;
+          border-radius: 50%;
+          animation: particleFloat 3s ease-out forwards;
+        }
+
+        @keyframes particleFloat {
+          to {
+            transform: translateY(-200px) scale(0);
+            opacity: 0;
+          }
+        }
+
+        .error-message {
+          margin: 20px 40px;
+          padding: 16px 20px;
+          background: rgba(239, 68, 68, 0.2);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 16px;
+          color: #f87171;
+          font-weight: 500;
+        }
+
+        .header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 24px 40px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo-small {
+          font-size: 36px;
+        }
+
+        .header h1 {
+          font-size: 28px;
+          font-weight: 700;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+
+        .wallet-badge {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-left: auto;
+          background: rgba(255, 255, 255, 0.05);
+          padding: 10px 16px;
+          border-radius: 24px;
+        }
+
+        .wallet-address {
+          font-family: monospace;
+          font-size: 14px;
+          color: #9ca3af;
+        }
+
+        .disconnect-btn {
+          background: transparent;
+          border: 1px solid rgba(239, 68, 68, 0.5);
+          color: #f87171;
+          padding: 6px 12px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 12px;
+          transition: all 0.2s;
+        }
+
+        .disconnect-btn:hover {
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        .wallet-adapter-disconnect-button {
+          background: transparent !important;
+          border: 1px solid rgba(239, 68, 68, 0.5) !important;
+          color: #f87171 !important;
+          padding: 6px 12px !important;
+          border-radius: 8px !important;
+          cursor: pointer !important;
+          font-size: 12px !important;
+          transition: all 0.2s !important;
+        }
+
+        .wallet-adapter-disconnect-button:hover {
+          background: rgba(239, 68, 68, 0.1) !important;
+        }
+
+        .transaction-notification {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.2));
+          border: 1px solid rgba(16, 185, 129, 0.3);
+          margin: 20px 40px;
+          padding: 16px 20px;
+          border-radius: 16px;
+          animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+          from { transform: translateY(-20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .tx-icon {
+          font-size: 28px;
+        }
+
+        .tx-title {
+          font-weight: 600;
+          color: #34d399;
+          margin: 0;
+        }
+
+        .tx-hash {
+          font-family: monospace;
+          font-size: 12px;
+          color: #9ca3af;
+          margin: 4px 0 0 0;
+        }
+
+        .connection-stage {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin: 20px 40px;
+          padding: 16px 20px;
+          background: rgba(102, 126, 234, 0.1);
+          border: 1px solid rgba(102, 126, 234, 0.3);
+          border-radius: 16px;
+        }
+
+        .stage-spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid rgba(102, 126, 234, 0.3);
+          border-top-color: #667eea;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+
+        .message {
+          margin: 0 40px;
+          padding: 16px 20px;
+          border-radius: 16px;
+          font-weight: 500;
+          text-align: center;
+          animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .message.success {
+          background: rgba(16, 185, 129, 0.2);
+          color: #34d399;
+        }
+
+        .message.error {
+          background: rgba(239, 68, 68, 0.2);
+          color: #f87171;
+        }
+
+        .message.achievement {
+          background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.2));
+          color: #fbbf24;
+        }
+
+        .streak-card {
+          margin: 40px;
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.15));
+          border: 1px solid rgba(102, 126, 234, 0.3);
+          border-radius: 32px;
+          padding: 48px;
+          text-align: center;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .streak-glow {
+          position: absolute;
+          top: -50%;
+          left: -50%;
+          width: 200%;
+          height: 200%;
+          background: radial-gradient(circle, rgba(102, 126, 234, 0.1) 0%, transparent 50%);
+          animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+          to { transform: rotate(360deg); }
+        }
+
+        .streak-main {
+          position: relative;
+          margin-bottom: 32px;
+        }
+
+        .streak-flame {
+          font-size: 56px;
+          animation: pulse 2s ease-in-out infinite;
+          display: inline-block;
+        }
+
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
+
+        .streak-count {
+          font-size: 96px;
+          font-weight: 800;
+          background: linear-gradient(135deg, #fbbf24, #f59e0b);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          line-height: 1;
+        }
+
+        .streak-label {
+          font-size: 22px;
+          color: #9ca3af;
+          margin-top: 8px;
+        }
+
+        .points-display {
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          background: rgba(16, 185, 129, 0.15);
+          padding: 16px 32px;
+          border-radius: 20px;
+          position: relative;
+        }
+
+        .points-icon {
+          font-size: 36px;
+        }
+
+        .points-value {
+          font-size: 36px;
+          font-weight: 700;
+          color: #34d399;
+        }
+
+        .points-label {
+          font-size: 14px;
+          color: #9ca3af;
+          display: block;
+        }
+
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 20px;
+          margin: 0 40px;
+        }
+
+        .stat-card {
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 20px;
+          padding: 24px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .stat-icon {
+          font-size: 32px;
+        }
+
+        .stat-value {
+          font-size: 20px;
+          font-weight: 700;
+          margin: 0;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: #9ca3af;
+          margin: 4px 0 0 0;
+        }
+
+        .action-button {
+          margin: 40px 40px 60px;
+          padding: 20px 40px;
+          font-size: 20px;
+          font-weight: 600;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 20px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          width: calc(100% - 80px);
+        }
+
+        .action-button:hover:not(:disabled) {
+          transform: translateY(-3px);
+          box-shadow: 0 15px 40px rgba(102, 126, 234, 0.4);
+        }
+
+        .action-button:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+
+        .btn-spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-top-color: white;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        .badges-section {
+          margin: 0 40px 60px;
+        }
+
+        .badges-section h3 {
+          margin-bottom: 20px;
+          font-size: 22px;
+        }
+
+        .badges-grid {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 16px;
+        }
+
+        .badge {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 20px 24px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 2px solid;
+        }
+
+        .badge-icon {
+          font-size: 40px;
+          margin-bottom: 8px;
+        }
+
+        .badge-name {
+          font-size: 14px;
+          font-weight: 600;
+          text-align: center;
+        }
+
+        .milestones-section {
+          margin: 0 40px 60px;
+        }
+
+        .milestones-section h3 {
+          margin-bottom: 20px;
+          font-size: 22px;
+        }
+
+        .milestones-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .milestone {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          padding: 16px 20px;
+          border-radius: 16px;
+          opacity: 0.5;
+        }
+
+        .milestone.earned {
+          opacity: 1;
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .milestone-icon {
+          width: 56px;
+          height: 56px;
+          border-radius: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 28px;
+        }
+
+        .milestone-info {
+          flex: 1;
+        }
+
+        .milestone-name {
+          font-weight: 600;
+          margin: 0;
+        }
+
+        .milestone-days {
+          font-size: 13px;
+          color: #9ca3af;
+          margin: 4px 0 0 0;
+        }
+
+        .milestone-check {
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: #34d399;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          color: #0a0a0f;
+        }
+
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.85);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          animation: fadeIn 0.2s ease;
+        }
+
+        .modal {
+          background: #1a1a2e;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 24px;
+          padding: 32px;
+          width: 90%;
+          max-width: 450px;
+          animation: slideUp 0.3s ease;
+        }
+
+        .modal h3 {
+          margin: 0 0 8px 0;
+          font-size: 24px;
+        }
+
+        .modal-subtitle {
+          color: #9ca3af;
+          margin: 0 0 28px 0;
+        }
+
+        .action-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+
+        .action-item {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          padding: 18px 20px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 16px;
+          cursor: pointer;
+          transition: all 0.2s;
+          text-align: left;
+        }
+
+        .action-item:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.08);
+          transform: translateX(4px);
+        }
+
+        .action-item:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .action-icon {
+          font-size: 32px;
+        }
+
+        .action-info {
+          flex: 1;
+        }
+
+        .action-name {
+          font-weight: 600;
+          margin: 0;
+        }
+
+        .action-points {
+          font-size: 13px;
+          color: #34d399;
+          margin: 4px 0 0 0;
+        }
+
+        .action-arrow {
+          color: #9ca3af;
+          font-size: 18px;
+        }
+
+        .modal-close {
+          width: 100%;
+          padding: 16px;
+          background: transparent;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: #9ca3af;
+          border-radius: 16px;
+          cursor: pointer;
+          font-size: 16px;
+          transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+      `}</style>
     </div>
   );
 };
-
-// Styles
-const styles: { [key: string]: React.CSSProperties } = {
-  container: {
-    minHeight: "100vh",
-    width: "100%",
-    background:
-      "linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 50%, #1a1a2e 100%)",
-    color: "#fff",
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-    padding: "20px",
-  },
-  particle: {
-    position: "fixed",
-    borderRadius: "50%",
-    pointerEvents: "none",
-    zIndex: 1000,
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 40px",
-    borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
-    marginBottom: "40px",
-  },
-  logo: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-  },
-  logoIcon: {
-    fontSize: "36px",
-  },
-  title: {
-    fontSize: "28px",
-    fontWeight: 700,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  },
-  walletButton: {
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    border: "none",
-    borderRadius: "12px",
-    padding: "12px 24px",
-    color: "#fff",
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-  card: {
-    maxWidth: "500px",
-    margin: "0 auto 24px",
-    padding: "32px",
-    background: "rgba(255, 255, 255, 0.03)",
-    border: "1px solid rgba(255, 255, 255, 0.1)",
-    borderRadius: "24px",
-    textAlign: "center",
-  },
-  sectionTitle: {
-    fontSize: "24px",
-    fontWeight: 700,
-    marginBottom: "16px",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  },
-  sectionText: {
-    color: "#9ca3af",
-    marginBottom: "24px",
-    fontSize: "16px",
-  },
-  connectButton: {
-    width: "100%",
-    padding: "18px 32px",
-    fontSize: "18px",
-    fontWeight: 600,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    border: "none",
-    borderRadius: "16px",
-    color: "white",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "12px",
-  },
-  primaryButton: {
-    width: "100%",
-    padding: "16px 32px",
-    fontSize: "16px",
-    fontWeight: 600,
-    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-    border: "none",
-    borderRadius: "16px",
-    color: "white",
-    cursor: "pointer",
-    transition: "transform 0.2s",
-  },
-  streakCard: {
-    maxWidth: "400px",
-    margin: "0 auto 24px",
-    padding: "40px",
-    background:
-      "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)",
-    border: "1px solid rgba(102, 126, 234, 0.3)",
-    borderRadius: "24px",
-    textAlign: "center",
-  },
-  streakCircle: {
-    marginBottom: "24px",
-  },
-  streakNumber: {
-    fontSize: "72px",
-    fontWeight: 800,
-    background: "linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    display: "block",
-  },
-  streakLabel: {
-    fontSize: "18px",
-    color: "#9ca3af",
-    marginTop: "8px",
-  },
-  claimButton: {
-    width: "100%",
-    padding: "16px 32px",
-    fontSize: "16px",
-    fontWeight: 600,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    border: "none",
-    borderRadius: "16px",
-    color: "white",
-    cursor: "pointer",
-    transition: "transform 0.2s",
-  },
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "16px",
-    maxWidth: "600px",
-    margin: "0 auto 24px",
-  },
-  statItem: {
-    padding: "20px",
-    background: "rgba(255, 255, 255, 0.03)",
-    border: "1px solid rgba(255, 255, 255, 0.1)",
-    borderRadius: "16px",
-    textAlign: "center",
-  },
-  statValue: {
-    fontSize: "28px",
-    fontWeight: 700,
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  },
-  statLabel: {
-    fontSize: "14px",
-    color: "#9ca3af",
-    marginTop: "4px",
-  },
-  progressHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "12px",
-  },
-  progressTitle: {
-    fontSize: "16px",
-    fontWeight: 600,
-  },
-  progressPercent: {
-    fontSize: "16px",
-    fontWeight: 700,
-    color: "#667eea",
-  },
-  progressBarContainer: {
-    height: "8px",
-    background: "rgba(255, 255, 255, 0.1)",
-    borderRadius: "4px",
-    overflow: "hidden",
-  },
-  progressBar: {
-    height: "100%",
-    background: "linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
-    borderRadius: "4px",
-    transition: "width 0.3s ease",
-  },
-  progressText: {
-    textAlign: "center",
-    color: "#9ca3af",
-    marginTop: "8px",
-    fontSize: "14px",
-  },
-  badgesTitle: {
-    textAlign: "center",
-    fontSize: "20px",
-    fontWeight: 600,
-    marginBottom: "16px",
-    color: "#fff",
-  },
-  badgesGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-    gap: "16px",
-    maxWidth: "800px",
-    margin: "0 auto 24px",
-  },
-  badgeItem: {
-    padding: "20px",
-    background: "rgba(255, 255, 255, 0.03)",
-    border: "2px solid",
-    borderRadius: "16px",
-    textAlign: "center",
-    transition: "transform 0.2s",
-  },
-  badgeIcon: {
-    fontSize: "36px",
-    display: "block",
-    marginBottom: "8px",
-  },
-  badgeName: {
-    fontSize: "14px",
-    fontWeight: 600,
-    marginBottom: "4px",
-  },
-  badgeDays: {
-    fontSize: "12px",
-    color: "#9ca3af",
-  },
-  badgeStatus: {
-    fontSize: "12px",
-    marginTop: "8px",
-    color: "#9ca3af",
-  },
-  actionButton: {
-    display: "block",
-    maxWidth: "300px",
-    margin: "0 auto",
-    padding: "16px 32px",
-    fontSize: "16px",
-    fontWeight: 600,
-    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-    border: "none",
-    borderRadius: "16px",
-    color: "white",
-    cursor: "pointer",
-    transition: "transform 0.2s",
-  },
-  message: {
-    position: "fixed",
-    top: "100px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    padding: "16px 32px",
-    borderRadius: "12px",
-    color: "#fff",
-    fontWeight: 500,
-    zIndex: 1000,
-    maxWidth: "90%",
-    textAlign: "center",
-  },
-  error: {
-    position: "fixed",
-    top: "100px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    padding: "16px 32px",
-    borderRadius: "12px",
-    background: "#ef4444",
-    color: "#fff",
-    fontWeight: 500,
-    zIndex: 1000,
-    maxWidth: "90%",
-  },
-  modalOverlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: "rgba(0, 0, 0, 0.85)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-  },
-  modal: {
-    background: "#1a1a2e",
-    border: "1px solid rgba(255, 255, 255, 0.1)",
-    borderRadius: "24px",
-    padding: "32px",
-    width: "90%",
-    maxWidth: "450px",
-  },
-  modalTitle: {
-    fontSize: "24px",
-    fontWeight: 700,
-    marginBottom: "8px",
-  },
-  modalSubtitle: {
-    color: "#9ca3af",
-    marginBottom: "24px",
-  },
-  actionItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "16px",
-    width: "100%",
-    padding: "18px 20px",
-    background: "rgba(255, 255, 255, 0.03)",
-    border: "1px solid rgba(255, 255, 255, 0.1)",
-    borderRadius: "16px",
-    cursor: "pointer",
-    textAlign: "left",
-    marginBottom: "12px",
-    color: "#fff",
-    transition: "background 0.2s",
-  },
-  actionIcon: {
-    fontSize: "24px",
-  },
-  actionInfo: {
-    flex: 1,
-  },
-  actionName: {
-    fontWeight: 600,
-    margin: 0,
-  },
-  actionPoints: {
-    fontSize: "14px",
-    color: "#9ca3af",
-    margin: 0,
-  },
-  modalClose: {
-    width: "100%",
-    padding: "16px",
-    background: "transparent",
-    border: "1px solid rgba(255, 255, 255, 0.2)",
-    color: "#9ca3af",
-    borderRadius: "16px",
-    cursor: "pointer",
-    fontSize: "16px",
-    marginTop: "12px",
-  },
-};
-
-export default StreakComponent;

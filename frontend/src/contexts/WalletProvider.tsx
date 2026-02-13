@@ -10,6 +10,7 @@ import {
   CloverWalletAdapter,
   BitKeepWalletAdapter,
   LedgerWalletAdapter,
+  TorusWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
 import { clusterApiUrl } from "@solana/web3.js";
 
@@ -29,38 +30,22 @@ export const WalletContextProvider: React.FC<WalletContextProviderProps> = ({
     [network],
   );
 
-  // Check if Phantom is available (injected by the extension)
-  const hasInjectedPhantom =
-    typeof window !== "undefined" && window.solana?.isPhantom;
-
   const wallets = useMemo(() => {
-    const walletList = [];
-
-    // Only add Phantom wallet adapter if Phantom is detected
-    if (hasInjectedPhantom) {
-      walletList.push(
-        new PhantomWalletAdapter({
-          appUrl: window.location.origin,
-        }),
-      );
-    }
-
-    // Always add other wallet adapters
-    walletList.push(
+    return [
+      new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
       new CloverWalletAdapter(),
       new BitKeepWalletAdapter(),
       new LedgerWalletAdapter(),
-    );
-
-    return walletList;
-  }, [hasInjectedPhantom]);
+      new TorusWalletAdapter(),
+    ];
+  }, []);
 
   return (
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider
         wallets={wallets}
-        autoConnect={false}
+        autoConnect={true}
         onError={(error: Error) => {
           console.error("Wallet error:", error);
         }}
