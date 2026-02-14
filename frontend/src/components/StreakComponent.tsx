@@ -120,7 +120,7 @@ const fetchStreakDataFromChain = async (
 
 export const StreakComponent: React.FC = () => {
   const { connection } = useConnection();
-  const { publicKey, wallet, connected, connecting, disconnect } = useWallet();
+  const { publicKey, wallet, connected, connecting, disconnect, sendTransaction } = useWallet();
 
   // Wallet state - derive from actual wallet
   const [walletAddress, setWalletAddress] = useState<string>("");
