@@ -201,8 +201,8 @@ pub struct UserStreak {
 }
 
 impl UserStreak {
-    // Account size: 32 + 8 + 8 + 8 + 1 = 57 bytes, rounded to 64
-    const LEN: usize = 64;
+    // Account size: 8 (discriminator) + 32 (user) + 8 (streak_count) + 8 (last_interaction_ts) + 8 (created_ts) + 1 (milestone_claimed) = 65 bytes
+    const LEN: usize = 65;
 }
 
 // =====================================================
