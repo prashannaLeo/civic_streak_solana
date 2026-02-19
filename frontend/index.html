@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Civic Streak | Build Your Civic Habit</title>
+    <!-- Buffer and process polyfills for Solana/web3.js compatibility -->
+    <script>
+      // Polyfill Buffer for browser
+      (function() {
+        if (!window.Buffer) {
+          window.Buffer = {
+            from: function(arr) { return new Uint8Array(arr); },
+            alloc: function(size) { return new Uint8Array(size); },
+            isBuffer: function() { return false; }
+          };
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

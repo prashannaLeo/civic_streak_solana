@@ -9,12 +9,12 @@
 ### Step 2: Deploy to Devnet
 1. Connect Phantom wallet with devnet SOL
 2. Run `anchor deploy` in the Playground terminal
-3. Program ID: `6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8`
+3. Program ID: `AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu`
 
 ### Step 3: Export IDL
 After deployment, run:
 ```bash
-anchor idl init --filepath ./target/idl/civic_streak.json 6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8
+anchor idl init --filepath ./target/idl/civic_streak.json AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu
 ```
 
 ### Step 4: Copy IDL Files
@@ -25,11 +25,11 @@ Copy the exported IDL to:
 ### Step 5: Update Frontend Environment
 Verify `.env` has:
 ```
-VITE_CIVIC_STREAK_PROGRAM_ID=6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8
+VITE_CIVIC_STREAK_PROGRAM_ID=AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu
 ```
 
 ### Step 6: Test Deployment
-1. Check program on Solana Explorer: https://explorer.solana.com/address/6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8?cluster=devnet
+1. Check program on Solana Explorer: https://explorer.solana.com/address/AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu?cluster=devnet
 2. Click "Instructions" tab - should show 3 instructions
 3. Run frontend: `cd frontend && npm run dev`
 4. Connect Phantom wallet

@@ -14,7 +14,6 @@
     "@solana/wallet-adapter-react-ui": "^0.9.38",
     "@solana/wallet-adapter-wallets": "^0.19.28",
     "@solana/web3.js": "^1.98.4",
-    "buffer": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -23,7 +22,9 @@
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.7.0",
+    "buffer": "^6.0.3",
     "typescript": "^5.3.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vite-plugin-node-polyfills": "^0.25.0"
   }
 }

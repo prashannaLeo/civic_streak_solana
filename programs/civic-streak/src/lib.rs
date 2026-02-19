@@ -16,7 +16,7 @@ use anchor_lang::prelude::*;
 // =====================================================
 
 /// Seed prefix for user streak account PDA
-const STREAK_SEED: &[u8] = b"streak_final_2024"; // Completely new seed for fresh start
+const STREAK_SEED: &[u8] = b"streak_2025"; // New seed for fresh start
 
 /// Time window for maintaining streak (48 hours in seconds)
 const STREAK_WINDOW_SECONDS: i64 = 48 * 60 * 60;
@@ -24,7 +24,7 @@ const STREAK_WINDOW_SECONDS: i64 = 48 * 60 * 60;
 const DAY_SECONDS: i64 = 24 * 60 * 60;
 
 /// Program ID
-declare_id!("6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8");
+declare_id!("AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu");
 
 #[program]
 pub mod civic_streak {
@@ -172,7 +172,7 @@ pub struct GetUserStreak<'info> {
     pub user_streak: Account<'info, UserStreak>,
 }
 
-/// Close user streak account (uses UncheckedAccount to handle corrupted accounts)
+/// Close user streak account (emergency reset - not implementing close for simplicity)
 #[derive(Accounts)]
 pub struct CloseUserStreak<'info> {
     #[account(mut)]
@@ -182,9 +182,8 @@ pub struct CloseUserStreak<'info> {
         mut,
         seeds = [STREAK_SEED, user.key().as_ref()],
         bump,
-        close = user,
     )]
-    pub user_streak: UncheckedAccount<'info>, // Use UncheckedAccount to bypass deserialization
+    pub user_streak: Account<'info, UserStreak>,
 }
 
 // =====================================================

@@ -13,15 +13,17 @@ const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
     import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8"
+    : "AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu"
 );
 
 // PDA seed - must match the Anchor program
-const PDA_SEED = "streak_final_2024";
+const PDA_SEED = "streak_2025";
 
-// Instruction discriminators
-const DISC_INITIALIZE = Buffer.from([158, 187, 121, 133, 40, 112, 185, 26]); // initialize_user_streak
-const DISC_RECORD = Buffer.from([77, 39, 209, 189, 54, 87, 223, 156]); // record_daily_engagement
+// Instruction discriminators - using snake_case function names to match Anchor program
+// SHA256("global:initialize_user_streak") = first 8 bytes
+// SHA256("global:record_daily_engagement") = first 8 bytes
+export const DISC_INITIALIZE = Buffer.from([137, 133, 92, 95, 173, 198, 211, 44]); // initialize_user_streak
+export const DISC_RECORD = Buffer.from([104, 57, 123, 39, 254, 22, 31, 91]); // record_daily_engagement
 
 export interface UserStreakData {
   user: string;
@@ -77,10 +79,6 @@ export const initializeUserStreak = async (
   wallet: any,
   userPubkey: PublicKey,
 ): Promise<string> => {
-  const transaction = new Transaction().add(
-    buildInstruction(userPubkey, DISC_INITIALIZE)
-  );
-
   // Get wallet adapter from wallet-adapter context
   const walletAdapter = wallet?.adapter || wallet;
 
@@ -88,10 +86,18 @@ export const initializeUserStreak = async (
     throw new Error("Wallet does not support signing transactions");
   }
 
+  // Get recent blockhash
+  const { blockhash } = await connection.getLatestBlockhash();
+
+  // Create transaction with required fields
+  const transaction = new Transaction({
+    feePayer: userPubkey,
+    recentBlockhash: blockhash,
+  }).add(buildInstruction(userPubkey, DISC_INITIALIZE));
+
+  // Sign and send
   const signedTx = await walletAdapter.signTransaction(transaction);
-  const signature = await connection.sendRawTransaction(
-    signedTx.serialize()
-  );
+  const signature = await connection.sendRawTransaction(signedTx.serialize());
 
   return signature;
 };
@@ -102,10 +108,6 @@ export const recordDailyEngagement = async (
   wallet: any,
   userPubkey: PublicKey,
 ): Promise<string> => {
-  const transaction = new Transaction().add(
-    buildInstruction(userPubkey, DISC_RECORD)
-  );
-
   // Get wallet adapter from wallet-adapter context
   const walletAdapter = wallet?.adapter || wallet;
 
@@ -113,10 +115,18 @@ export const recordDailyEngagement = async (
     throw new Error("Wallet does not support signing transactions");
   }
 
+  // Get recent blockhash
+  const { blockhash } = await connection.getLatestBlockhash();
+
+  // Create transaction with required fields
+  const transaction = new Transaction({
+    feePayer: userPubkey,
+    recentBlockhash: blockhash,
+  }).add(buildInstruction(userPubkey, DISC_RECORD));
+
+  // Sign and send
   const signedTx = await walletAdapter.signTransaction(transaction);
-  const signature = await connection.sendRawTransaction(
-    signedTx.serialize()
-  );
+  const signature = await connection.sendRawTransaction(signedTx.serialize());
 
   return signature;
 };

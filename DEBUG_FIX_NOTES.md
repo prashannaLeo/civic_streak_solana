@@ -10,7 +10,7 @@
 1. **Rust (`programs/civic-streak/src/lib.rs`):**
    ```rust
    const STREAK_SEED: &[u8] = b"streak_v3";
-   declare_id!("6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8");
+   declare_id!("AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu");
    ```
 
 2. **Frontend (`frontend/src/solana/client.ts`):**

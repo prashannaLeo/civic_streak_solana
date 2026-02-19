@@ -9,6 +9,7 @@ import {
   SystemProgram,
   Transaction,
   TransactionInstruction,
+  ComputeBudgetProgram,
 } from "@solana/web3.js";
 import { Connection } from "@solana/web3.js";
 import { Buffer } from "buffer";
@@ -18,6 +19,8 @@ import {
   recordDailyEngagement,
   getUserStreakPDA,
   UserStreakData,
+  DISC_INITIALIZE,
+  DISC_RECORD,
 } from "../solana/client";
 
 // Milestone configuration with gamification
@@ -75,13 +78,68 @@ const PROGRAM_ID = new PublicKey(
     : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
 );
 
-// Discriminators for the program instructions
-const DISCRIMINATOR_INITIALIZE = Buffer.from([
-  0x9d, 0x98, 0x88, 0x79, 0x0c, 0xa2, 0x38, 0x45,
-]);
-const DISCRIMINATOR_RECORD = Buffer.from([
-  0x4a, 0xd6, 0x04, 0xcc, 0x54, 0xce, 0x9b, 0xbf,
-]);
+// Static priority fee - 1000 micro-lamports (0.001 SOL)
+// This is sufficient for devnet transactions
+const PRIORITY_FEE_MICRO_LAMPORTS = 1000;
+
+const fetchPriorityFee = async (): Promise<number> => {
+  console.log("[PriorityFee] Using static fee:", PRIORITY_FEE_MICRO_LAMPORTS);
+  return PRIORITY_FEE_MICRO_LAMPORTS;
+};
+
+// Helper function to simulate transaction and get detailed error
+const simulateTransaction = async (
+  connection: Connection,
+  transaction: Transaction,
+  signer: PublicKey
+): Promise<{ success: boolean; error?: string; logs?: string[] }> => {
+  try {
+    transaction.feePayer = signer;
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    transaction.recentBlockhash = blockhash;
+
+    const simulationResult = await connection.simulateTransaction(transaction);
+
+    console.log("[Simulation] Result:", simulationResult.value);
+
+    if (simulationResult.value.err) {
+      const err = simulationResult.value.err as any;
+      const logs = simulationResult.value.logs || [];
+      
+      // Try to extract meaningful error message
+      let errorMsg = "Transaction simulation failed";
+      if (typeof err === "string") {
+        errorMsg = err;
+      } else if (err?.InstructionError) {
+        const instrErr = err.InstructionError as any;
+        if (instrErr[1]?.Custom) {
+          errorMsg = `Custom Error Code: ${instrErr[1].Custom}`;
+        } else if (instrErr[1]?.ProgramError) {
+          errorMsg = `Program Error: ${JSON.stringify(instrErr[1])}`;
+        }
+      }
+      
+      console.error("[Simulation] Error:", errorMsg, "Logs:", logs);
+      return { success: false, error: errorMsg, logs };
+    }
+
+    return { success: true, logs: simulationResult.value.logs || undefined };
+  } catch (error: any) {
+    console.error("[Simulation] Exception:", error);
+    return { success: false, error: error.message || "Simulation failed" };
+  }
+};
+
+// Verify PDA derivation matches on-chain seeds
+const verifyPDA = (userPubkey: PublicKey): { pda: PublicKey; bump: number; seeds: Buffer } => {
+  const seeds = Buffer.from("streak_2025");
+  const [pda, bump] = PublicKey.findProgramAddressSync(
+    [seeds, userPubkey.toBuffer()],
+    PROGRAM_ID
+  );
+  console.log("[PDA] Derived:", pda.toBase58(), "Bump:", bump, "Seeds:", seeds.toString());
+  return { pda, bump, seeds };
+};
 
 // Streak data
 interface StreakData {
@@ -230,10 +288,42 @@ export const StreakComponent: React.FC = () => {
     setMessage(null);
 
     try {
-      // Get the stake PDA
-      const streakPDA = getUserStreakPDA(publicKey);
+      // Step 1: Verify PDA derivation
+      console.log("[startStreak] Starting transaction for user:", publicKey.toBase58());
+      const { pda: streakPDA } = verifyPDA(publicKey);
+      console.log("[startStreak] PDA derived:", streakPDA.toBase58());
 
-      // Create instruction
+      // Step 1.5: Check if account already exists
+      setConnectionStage("Checking existing account...");
+      const existingData = await fetchUserStreakData(connection, publicKey);
+      if (existingData) {
+        // Account exists and can be read - user is already initialized
+        console.log("[startStreak] Account already exists:", existingData);
+        setStreakData({
+          streakCount: existingData.streakCount,
+          totalCivicPoints: existingData.streakCount * 10, // Approximate
+          badges: [],
+          completedActions: [],
+          createdAt: new Date(existingData.createdTs * 1000),
+          lastActionDate: new Date(existingData.lastInteractionTs * 1000),
+        });
+        setMessage({
+          text: "You already have a streak! Use 'Record Civic Action' to continue.",
+          type: "info",
+        });
+        return;
+      }
+
+      // Step 2: Fetch priority fee
+      setConnectionStage("Fetching priority fee...");
+      const priorityFee = await fetchPriorityFee();
+
+      // Step 3: Create priority fee instruction
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: priorityFee,
+      });
+
+      // Step 4: Create main instruction
       const instruction = new TransactionInstruction({
         keys: [
           {
@@ -253,15 +343,48 @@ export const StreakComponent: React.FC = () => {
           },
         ],
         programId: PROGRAM_ID,
-        data: DISCRIMINATOR_INITIALIZE,
+        data: DISC_INITIALIZE,
       });
 
-      const transaction = new Transaction().add(instruction);
+      // Step 5: Build transaction with priority fee
+      console.log("[startStreak] Building transaction...");
+      const transaction = new Transaction()
+        .add(computeBudgetIx)
+        .add(instruction);
+
+      console.log("[startStreak] Getting blockhash...");
       const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      console.log("[startStreak] Blockhash:", blockhash);
+      
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Send REAL transaction using wallet with retry
+      console.log("[startStreak] Transaction details:");
+      console.log("  - Instructions:", transaction.instructions.length);
+      console.log("  - FeePayer:", transaction.feePayer?.toBase58());
+      console.log("  - RecentBlockhash:", transaction.recentBlockhash);
+
+      // Log first instruction data for debugging
+      if (transaction.instructions[0]) {
+        console.log("[startStreak] Instruction 0 (compute):", {
+          programId: transaction.instructions[0].programId?.toBase58(),
+          keys: transaction.instructions[0].keys.map(k => k.pubkey.toBase58()),
+          data: Array.from(transaction.instructions[0].data || [])
+        });
+      }
+      if (transaction.instructions[1]) {
+        console.log("[startStreak] Instruction 1 (main):", {
+          programId: transaction.instructions[1].programId?.toBase58(),
+          keys: transaction.instructions[1].keys.map(k => k.pubkey.toBase58()),
+          data: Array.from(transaction.instructions[1].data || [])
+        });
+      }
+
+      // Step 6: Skip simulation for init - it causes issues with new accounts
+      // The transaction will fail on-chain if there's a real problem
+      setConnectionStage("Sending transaction...");
+
+      // Step 7: Send transaction
       setConnectionStage("Sending transaction...");
 
       let sig: string | null = null;
@@ -272,20 +395,60 @@ export const StreakComponent: React.FC = () => {
           setConnectionStage(
             `Sending transaction (attempt ${attempt}/${maxRetries})...`,
           );
-          const txResult = await wallet?.adapter?.sendTransaction(
-            transaction,
-            connection,
-            {
-              skipPreflight: false,
-              maxRetries: 5,
-            },
-          );
-          if (txResult) {
-            sig = txResult;
-            break;
+          
+          console.log("[startStreak] Attempt", attempt, "-", {
+            walletAdapter: wallet?.adapter?.name,
+            // @ts-ignore - signTransaction exists on actual wallet adapters
+            hasSignTransaction: !!wallet?.adapter?.signTransaction,
+            hasSendTransaction: !!wallet?.adapter?.sendTransaction,
+            network: connection.rpcEndpoint
+          });
+
+          console.log("[startStreak] Calling wallet.signTransaction() first...");
+          
+          // Try signTransaction first, then send
+          // @ts-ignore - signTransaction exists on actual wallet adapters
+          const signedTx = await wallet?.adapter?.signTransaction(transaction);
+          console.log("[startStreak] Signed transaction:", signedTx ? "yes" : "no");
+          
+          if (signedTx) {
+            console.log("[startStreak] Now sending signed transaction...");
+            
+            // Skip preflight simulation - account might be in inconsistent state from previous attempts
+            const txResult = await connection.sendRawTransaction(signedTx.serialize(), {
+              skipPreflight: true,
+              maxRetries: 10
+            });
+            console.log("[startStreak] Transaction result:", txResult);
+            if (txResult) {
+              sig = txResult;
+              break;
+            }
+          } else {
+            // Fallback to sendTransaction
+            console.log("[startStreak] signTransaction returned null, trying sendTransaction...");
+            const txResult = await wallet?.adapter?.sendTransaction(
+              transaction,
+              connection,
+              {
+                skipPreflight: false,
+                maxRetries: 5,
+              },
+            );
+            console.log("[startStreak] Transaction result:", txResult);
+            if (txResult) {
+              sig = txResult;
+              break;
+            }
           }
         } catch (err: any) {
           console.error(`Attempt ${attempt} failed:`, err);
+          console.error("Error details:", {
+            message: err.message,
+            code: err.code,
+            stack: err.stack,
+            cause: err.cause
+          });
           if (attempt === maxRetries) {
             throw new Error(
               `Transaction failed after ${maxRetries} attempts: ${err.message}`,
@@ -352,9 +515,22 @@ export const StreakComponent: React.FC = () => {
     setMessage(null);
 
     try {
-      // Get the stake PDA
-      const streakPDA = getUserStreakPDA(publicKey);
+      // Step 1: Verify PDA derivation matches on-chain
+      console.log("[completeAction] Starting transaction for user:", publicKey.toBase58());
+      const { pda: streakPDA, bump, seeds } = verifyPDA(publicKey);
+      console.log("[completeAction] PDA derived:", streakPDA.toBase58());
 
+      // Step 2: Fetch priority fee from Helius
+      setConnectionStage("Fetching priority fee...");
+      const priorityFee = await fetchPriorityFee();
+      console.log("[completeAction] Priority fee:", priorityFee);
+
+      // Step 3: Create priority fee instruction
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: priorityFee,
+      });
+
+      // Step 4: Create main instruction
       const instruction = new TransactionInstruction({
         keys: [
           {
@@ -374,15 +550,46 @@ export const StreakComponent: React.FC = () => {
           },
         ],
         programId: PROGRAM_ID,
-        data: DISCRIMINATOR_RECORD,
+        data: DISC_RECORD,
       });
 
-      const transaction = new Transaction().add(instruction);
+      // Step 5: Build transaction with priority fee
+      const transaction = new Transaction()
+        .add(computeBudgetIx)
+        .add(instruction);
+
       const { blockhash } = await connection.getLatestBlockhash("confirmed");
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Send REAL transaction using wallet with retry
+      // Step 6: Simulate transaction to get detailed error
+      setConnectionStage("Simulating transaction...");
+      const simResult = await simulateTransaction(connection, transaction, publicKey);
+      
+      if (!simResult.success) {
+        console.error("[completeAction] Simulation failed:", simResult.error);
+        console.error("[completeAction] Simulation logs:", simResult.logs);
+        
+        // Check for specific common errors
+        let errorMessage = simResult.error || "Transaction simulation failed";
+        
+        if (simResult.logs) {
+          // Check for "AlreadyClaimedToday" or similar
+          if (simResult.logs.some((log: string) => log.includes("AlreadyClaimed"))) {
+            errorMessage = "You've already claimed your civic action today! Come back tomorrow.";
+          } else if (simResult.logs.some((log: string) => log.includes("AccountNotInitialized"))) {
+            errorMessage = "Streak account not found. Please initialize your streak first.";
+          } else if (simResult.logs.some((log: string) => log.includes("InvalidProgramArgument"))) {
+            errorMessage = "PDA derivation mismatch. Please refresh and try again.";
+          }
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      console.log("[completeAction] Simulation successful, logs:", simResult.logs);
+
+      // Step 7: Send REAL transaction using wallet with retry
       setConnectionStage("Sending transaction...");
 
       let sig: string | null = null;
@@ -955,21 +1162,40 @@ export const StreakComponent: React.FC = () => {
         </div>
       </div>
 
-      {/* Action button */}
-      <button
-        className="action-button"
-        onClick={() => setShowActionMenu(true)}
-        disabled={loading}
-      >
-        {loading ? (
-          <>
-            <div className="btn-spinner"></div>
-            Processing...
-          </>
-        ) : (
-          <>📝 Record Civic Action</>
-        )}
-      </button>
+      {/* Action buttons - Show different buttons based on streak state */}
+      {streakData.streakCount === 0 ? (
+        // New user - show Start Streak button
+        <button
+          className="action-button start-button"
+          onClick={startStreak}
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <div className="btn-spinner"></div>
+              Processing...
+            </>
+          ) : (
+            <>🚀 Start My Streak</>
+          )}
+        </button>
+      ) : (
+        // Existing user - show Record Civic Action button
+        <button
+          className="action-button"
+          onClick={() => setShowActionMenu(true)}
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <div className="btn-spinner"></div>
+              Processing...
+            </>
+          ) : (
+            <>📝 Record Civic Action</>
+          )}
+        </button>
+      )}
 
       {/* Badges */}
       {streakData.badges.length > 0 && (

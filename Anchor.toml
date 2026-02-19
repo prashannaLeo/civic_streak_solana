@@ -9,13 +9,13 @@ resolver = "2"
 skip-lint = false
 
 [programs.localnet]
-civic_streak = "6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8"
+civic_streak = "AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu"
 
 [programs.devnet]
-civic_streak = "6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8"
+civic_streak = "AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu"
 
 [programs.testnet]
-civic_streak = "6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8"
+civic_streak = "AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu"
 
 [registry]
 url = "https://api.apr.dev"

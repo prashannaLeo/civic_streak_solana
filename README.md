@@ -113,7 +113,7 @@ Open `http://localhost:3000`
 
 ### Devnet (Current)
 ```
-Program ID: 6uhm8dfJGi4yXzQJUshqCgyC1LzLwJvGCYpxvSSXQwT8
+Program ID: AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu
 RPC: https://api.devnet.solana.com
 ```
 
