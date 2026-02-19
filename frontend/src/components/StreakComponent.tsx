@@ -75,7 +75,7 @@ const PROGRAM_ID = new PublicKey(
   typeof import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID === "string" &&
     import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
     ? import.meta.env.VITE_CIVIC_STREAK_PROGRAM_ID
-    : "9eVimSSosBbnjQmTjx7aGrKUo9ZJVmVEV7d6Li37Z526",
+    : "AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu",
 );
 
 // Static priority fee - 1000 micro-lamports (0.001 SOL)
@@ -225,6 +225,43 @@ export const StreakComponent: React.FC = () => {
       setWalletName("");
     }
   }, [connected, publicKey, wallet]);
+
+  // Load existing streak data from blockchain when wallet connects
+  useEffect(() => {
+    const loadStreakData = async () => {
+      if (connected && publicKey) {
+        try {
+          const data = await fetchUserStreakData(connection, publicKey);
+          if (data) {
+            // Account exists - update streak data
+            setStreakData({
+              streakCount: data.streakCount,
+              totalCivicPoints: data.streakCount * 10, // Approximate points
+              badges: [],
+              completedActions: [],
+              createdAt: new Date(data.createdTs * 1000),
+              lastActionDate: new Date(data.lastInteractionTs * 1000),
+            });
+          } else {
+            // No account exists - reset to initial state
+            setStreakData({
+              streakCount: 0,
+              totalCivicPoints: 0,
+              badges: [],
+              completedActions: [],
+              createdAt: new Date(),
+              lastActionDate: new Date(),
+            });
+          }
+        } catch (err) {
+          console.error("Error loading streak data:", err);
+          setError("Failed to load streak data. Please try again.");
+        }
+      }
+    };
+
+    loadStreakData();
+  }, [connected, publicKey, connection]);
 
   // Particle animation for achievements
   const createParticles = useCallback((x: number, y: number) => {
@@ -458,41 +495,98 @@ export const StreakComponent: React.FC = () => {
         }
       }
 
-      if (sig) {
-        setTransactionHash(sig);
-        setConnectionStage("Confirming transaction...");
+        if (sig) {
+          setConnectionStage("Confirming transaction...");
 
-        // Wait for confirmation with longer timeout
-        try {
-          await connection.confirmTransaction(sig, "finalized");
-        } catch (confirmErr) {
-          // Try with confirmed commitment instead
-          await connection.confirmTransaction(sig, "confirmed");
+          // Wait for confirmation with longer timeout
+          try {
+            await connection.confirmTransaction(sig, "finalized");
+          } catch (confirmErr) {
+            // Try with confirmed commitment instead
+            await connection.confirmTransaction(sig, "confirmed");
+          }
+
+          // Verify transaction success by fetching it with retries
+          setConnectionStage("Verifying transaction success...");
+          let tx = null;
+          for (let retry = 0; retry < 3; retry++) {
+            tx = await connection.getTransaction(sig, {
+              commitment: "confirmed",
+            });
+            if (tx) break;
+            await new Promise((resolve) =>
+              setTimeout(resolve, 2000 * (retry + 1))
+            );
+          }
+
+          if (!tx) {
+            throw new Error(
+              "Transaction could not be verified on-chain. Please check the transaction signature and try again."
+            );
+          }
+
+          if (tx.meta?.err) {
+            throw new Error(
+              `Transaction failed on-chain: ${JSON.stringify(tx.meta.err)}`
+            );
+          }
+
+          // Fetch the actual updated streak data from blockchain
+          setConnectionStage("Fetching updated streak data...");
+
+          // Retry fetching streak data up to 3 times with delay
+          let updatedStreakData = null;
+          for (let retry = 0; retry < 3; retry++) {
+            updatedStreakData = await fetchStreakDataFromChain(
+              connection,
+              publicKey,
+            );
+            if (updatedStreakData) break;
+            await new Promise((resolve) =>
+              setTimeout(resolve, 2000 * (retry + 1)),
+            );
+          }
+
+          if (updatedStreakData) {
+            setStreakData({
+              streakCount: updatedStreakData.streakCount,
+              totalCivicPoints: updatedStreakData.streakCount * 10, // Approximate points
+              badges: [],
+              completedActions: [],
+              createdAt: new Date(updatedStreakData.createdTs * 1000),
+              lastActionDate: new Date(updatedStreakData.lastInteractionTs * 1000),
+            });
+
+            setMessage({
+              text: `🎉 Streak initialized on Solana! Tx: ${sig.slice(0, 8)}...`,
+              type: "success",
+            });
+
+            // Show transaction notification only after verification
+            setTransactionHash(sig);
+
+            createParticles(window.innerWidth / 2, window.innerHeight / 2);
+          } else {
+            // Streak account not found after successful transaction - this should not happen
+            throw new Error(
+              "Transaction succeeded but streak account not found. Please try again or contact support."
+            );
+          }
+
+          setTimeout(() => setTransactionHash(null), 5000);
         }
-
-        setStreakData({
-          streakCount: 1,
-          totalCivicPoints: 10,
-          badges: [],
-          completedActions: [],
-          createdAt: new Date(),
-          lastActionDate: new Date(),
-        });
-
-        setMessage({
-          text: `🎉 Streak initialized on Solana! Tx: ${sig.slice(0, 8)}...`,
-          type: "success",
-        });
-
-        createParticles(window.innerWidth / 2, window.innerHeight / 2);
-
-        setTimeout(() => setTransactionHash(null), 5000);
-      }
     } catch (err: any) {
       console.error("Transaction error:", err);
-      setError(err.message || "Error initializing streak. Please try again.");
+      // Provide specific guidance for common errors
+      let userMessage = err.message || "Error initializing streak. Please try again.";
+      
+      // Check for deserialization error (3003) - indicates program ID/account layout mismatch
+      if (err.message && err.message.includes("3003") || err.message?.includes("deserialize")) {
+        userMessage = "Account data format error. This may happen if you previously initialized with a different program version. Please contact support or try with a fresh wallet.";
+      }
+      
       setMessage({
-        text: err.message || "Error initializing streak. Please try again.",
+        text: userMessage,
         type: "error",
       });
     } finally {
@@ -624,7 +718,6 @@ export const StreakComponent: React.FC = () => {
       }
 
       if (sig) {
-        setTransactionHash(sig);
         setConnectionStage("Confirming transaction...");
 
         // Wait for confirmation
@@ -643,6 +736,31 @@ export const StreakComponent: React.FC = () => {
               sig,
             );
           }
+        }
+
+        // Verify transaction success by fetching it with retries
+        setConnectionStage("Verifying transaction success...");
+        let tx = null;
+        for (let retry = 0; retry < 3; retry++) {
+          tx = await connection.getTransaction(sig, {
+            commitment: "confirmed",
+          });
+          if (tx) break;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2000 * (retry + 1))
+          );
+        }
+
+        if (!tx) {
+          throw new Error(
+            "Transaction could not be verified on-chain. Please check the transaction signature and try again."
+          );
+        }
+
+        if (tx.meta?.err) {
+          throw new Error(
+            `Transaction failed on-chain: ${JSON.stringify(tx.meta.err)}`
+          );
         }
 
         // Fetch the actual updated streak data from blockchain
@@ -719,32 +837,30 @@ export const StreakComponent: React.FC = () => {
               type: "success",
             });
           }
+
+          // Show transaction notification only after verification
+          setTransactionHash(sig);
         } else {
-          // Fallback if fetch fails - increment local streak
-          const now = new Date();
-          setStreakData({
-            ...streakData,
-            streakCount: streakData.streakCount + 1,
-            totalCivicPoints: streakData.totalCivicPoints + action.points,
-            completedActions: [
-              ...streakData.completedActions,
-              { id: action.id, date: now },
-            ],
-            lastActionDate: now,
-          });
-          setMessage({
-            text: `✅ ${action.name} completed! +${action.points} points!`,
-            type: "success",
-          });
+          // Streak account data not found after successful transaction
+          throw new Error(
+            "Transaction succeeded but streak data could not be verified. Please try again or contact support."
+          );
         }
 
         setTimeout(() => setTransactionHash(null), 5000);
       }
     } catch (err: any) {
       console.error("Transaction error:", err);
-      setError(err.message || "Error recording action. Please try again.");
+      // Provide specific guidance for common errors
+      let userMessage = err.message || "Error recording action. Please try again.";
+      
+      // Check for deserialization error (3003) - indicates program ID/account layout mismatch
+      if (err.message && err.message.includes("3003") || err.message?.includes("deserialize")) {
+        userMessage = "Account data format error. This may happen if you previously initialized with a different program version. Please contact support or try with a fresh wallet.";
+      }
+      
       setMessage({
-        text: err.message || "Error recording action. Please try again.",
+        text: userMessage,
         type: "error",
       });
     } finally {

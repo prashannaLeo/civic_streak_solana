@@ -145,12 +145,12 @@ export const fetchUserStreakData = async (
       return null;
     }
 
-    // Manually decode account data (48 bytes total)
+    // Manually decode account data (65 bytes total: 8 discriminator + 32 user + 8 streak + 8 last + 8 created + 1 milestone)
     const data = accountInfo.data;
-    const streakCount = Number(data.readBigUInt64LE(8));
-    const lastInteractionTs = Number(data.readBigInt64LE(16));
-    const createdTs = Number(data.readBigInt64LE(24));
-    const milestoneClaimed = Number(data.readBigUInt64LE(32));
+    const streakCount = Number(data.readBigUInt64LE(40));  // Offset 40: after discriminator(8) + user(32)
+    const lastInteractionTs = Number(data.readBigInt64LE(48)); // Offset 48: after discriminator + user + streak
+    const createdTs = Number(data.readBigInt64LE(56)); // Offset 56: after discriminator + user + streak + last
+    const milestoneClaimed = Number(data.readUInt8(64)); // Offset 64: after discriminator + user + streak + last + created
 
     return {
       user: userPubkey.toString(),
