@@ -957,6 +957,7 @@ export const StreakComponent: React.FC = () => {
             justify-content: center;
             position: relative;
             overflow: hidden;
+            border-radius: 16px;
           }
 
           .particles {

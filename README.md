@@ -1,22 +1,26 @@
-# 🗳️ Civic Streak - Solana Hackathon Project
+# 🗳️ Civic Streak - Community Engagement Platform
 
-A **streak-based civic engagement system** on Solana blockchain. Users maintain daily streaks by completing civic actions (voting, reading issues, joining discussions).
+A **streak-based civic engagement system** built on the Solana blockchain. Civic Streak rewards community members for consistent participation through a transparent, verifiable, and gamified experience. Users maintain daily streaks by completing civic actions such as voting, reading issues, and joining discussions.
 
 ---
 
-## 🎯 Problem
+## 🎯 The Problem
 
-Democratic platforms struggle with:
-- Low user retention
-- No incentive for daily engagement
-- Centralized data manipulation risks
+Democratic platforms and community organizations face significant challenges:
 
-## 💡 Solution
+- **Low User Retention**: Users often lose interest after initial engagement
+- **No Incentive for Daily Engagement**:缺乏持续的参与激励机制
+- **Centralized Data Manipulation Risks**: 中心化数据存在被篡改的风险
+- **Lack of Transparency**: 参与者难以验证他们的贡献是否被正确记录
 
-Gamified streak system on Solana with:
-- **Tamper-proof** engagement tracking (on-chain)
-- **Daily streaks** with 24-48h window
-- **Milestone rewards** (CIVIC_POINTS)
+## 💡 Our Solution
+
+Civic Streak addresses these challenges with a gamified streak system built on Solana:
+
+- **Tamper-Proof Engagement Tracking**: 所有参与记录都存储在 Solana 区块链上，完全透明且不可篡改
+- **Daily Streaks with Flexible Window**: 24-48小时窗口期，允许用户在一天内完成操作
+- **Milestone Rewards**: 达到里程碑时获得徽章和 CIVIC 积分奖励
+- **Verifiable on-Chain**: 任何人都可以通过 Solana Explorer 验证参与记录
 
 ---
 
@@ -24,172 +28,228 @@ Gamified streak system on Solana with:
 
 | Feature | Benefit |
 |---------|---------|
-| Speed | Near-instant transactions |
-| Low Cost | Affordable micro-interactions |
-| Tamper-proof | Immutable streak data |
-| Verifiable | Anyone can verify on Explorer |
+| High Speed | Near-instant transaction confirmation |
+| Low Cost | Affordable micro-interactions (~$0.001 per tx) |
+| Tamper-Proof | Immutable streak data that cannot be altered |
+| Verifiable | Anyone can verify participation on Explorer |
+| Eco-Friendly | Proof of Stake consensus with minimal energy consumption |
 
 ---
 
 ## ✨ Features
 
-- **Wallet Auth** - Phantom/Solflare wallet
-- **Streak Tracking** - 24-48h window, auto-reset
-- **Civic Actions** - Vote, Read, Share, Discuss
-- **Milestones** - 7, 14, 30, 50, 100 days
-- **CIVIC_POINTS** - SPL token rewards
+- **Wallet Authentication** - Support for Phantom, Solflare, and Backpack wallets
+- **Streak Tracking** - 24-48 hour window with automatic reset
+- **Civic Actions** - Vote, Read, Share, Discuss, and more
+- **Milestone Badges** - 7, 14, 30, 50, 100 day achievements
+- **CIVIC Points** - SPL token rewards for consistent participation
+- **Blockchain Verification** - All data stored on Solana for transparency
+
+### Available Badges
+
+| Badge | Requirement | Description |
+|-------|-------------|-------------|
+| 🌟 Civic Starter | 7 days | Your first milestone |
+| 🏛️ Civic Citizen | 30 days | Dedicated community member |
+| 👑 Civic Champion | 100 days | Legendary participant |
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Project Architecture
 
 ```
 civic-streak/
 ├── programs/
-│   └── civic-streak/src/lib.rs  # Anchor smart contract
+│   └── civic-streak/src/lib.rs      # Anchor smart contract
 ├── frontend/
 │   └── src/
-│       ├── components/StreakComponent.tsx  # Main UI
-│       ├── solana/client.ts    # Web3.js helpers
-│       └── index.css           # Styling
-├── Anchor.toml                 # Program config
+│       ├── App.tsx                   # Main app with routing
+│       ├── components/
+│       │   ├── StreakComponent.tsx   # Main streak UI
+│       │   ├── About.tsx             # About page
+│       │   └── HowItWorks.tsx        # How it works page
+│       ├── solana/
+│       │   └── client.ts             # Web3.js helpers
+│       └── index.css                 # Styling
+├── Anchor.toml                       # Program configuration
 └── README.md
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
 ### Prerequisites
-- Rust + Solana CLI + Anchor v0.32.1
-- Node.js v18+
-- Phantom/Solflare wallet
 
-### 1. Start Local Validator
+- Rust and Solana CLI installed
+- Anchor Framework v0.32.1 or higher
+- Node.js v18 or higher
+- Phantom, Solflare, or Backpack wallet
+
+### Quick Start
+
+#### 1. Start Local Validator
+
 ```bash
 solana-test-validator
 ```
 
-### 2. Build & Deploy Program
+#### 2. Build & Deploy Program
+
 ```bash
 anchor build
 anchor deploy
 ```
 
-### 3. Configure Frontend
+#### 3. Configure Frontend
+
 ```bash
 cd frontend
 npm install
 ```
 
-Update `.env`:
+Update your `.env` file:
+
 ```env
 VITE_SOLANA_RPC_ENDPOINT=http://localhost:8899
 VITE_CIVIC_STREAK_PROGRAM_ID=YourDeployedProgramId
 ```
 
-### 4. Run Frontend
+#### 4. Run Frontend
+
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`
+Open `http://localhost:3000` in your browser.
 
 ---
 
-## 📋 Commands
+## 📋 Available Commands
 
 | Command | Description |
 |---------|-------------|
-| `anchor build` | Build Rust program |
-| `anchor deploy` | Deploy to network |
+| `anchor build` | Build the Rust program |
+| `anchor deploy` | Deploy to the selected network |
 | `anchor test` | Run integration tests |
-| `npm run dev` | Start frontend dev server |
-| `npm run build` | Build for production |
+| `npm run dev` | Start frontend development server |
+| `npm run build` | Build frontend for production |
 
 ---
 
-## 🌐 Networks
+## 🌐 Network Configuration
 
 ### Devnet (Current)
+
 ```
 Program ID: AZk4djCf76yJ5qEfJgu3muTtYmW6Wm7bL8Bsjsj1MMGu
-RPC: https://api.devnet.solana.com
+RPC Endpoint: https://api.devnet.solana.com
 ```
 
-### Local
+### Local Development
+
 ```
-RPC: http://localhost:8899
+RPC Endpoint: http://localhost:8899
 ```
 
 ---
 
-## 🎮 Usage Flow
+## 🎮 How to Use
 
-1. **Connect Wallet** - Phantom/Solflare
-2. **Start Streak** - Initialize account (Day 1)
-3. **Daily Action** - Vote/Read/Share/Discuss
-4. **Earn Points** - +10 points per action
-5. **Hit Milestones** - Earn badges + bonus points
+1. **Connect Your Wallet** - Click the wallet button and connect using Phantom or Solflare
+2. **Initialize Your Profile** - Create your Civic Streak profile on the blockchain
+3. **Perform Daily Actions** - Vote, read, share, or discuss community topics
+4. **Earn Points** - Receive +10 CIVIC points per action
+5. **Reach Milestones** - Earn badges and bonus points at 7, 14, 30, 50, and 100 days
 
-### Milestones
-| Days | Badge | Points |
-|------|-------|--------|
-| 7 | 🌟 Civic Starter | 100 |
-| 14 | ⭐ Active Citizen | 150 |
-| 30 | 🏆 Civic Champion | 250 |
-| 50 | 🎖️ Democracy Hero | 500 |
-| 100 | 👑 Civic Legend | 1000 |
+### Points System
 
----
-
-## 🔧 Tech Stack
-
-- **Rust** + **Anchor Framework** (smart contract)
-- **Solana web3.js** (frontend blockchain)
-- **React** + **Vite** (UI)
-- **Phantom Wallet Adapter**
+| Action | Points |
+|--------|--------|
+| Daily Check-in | +5 |
+| Vote | +10 |
+| Read Article | +10 |
+| Share Content | +10 |
+| Join Discussion | +15 |
 
 ---
 
-## 📦 Key Files
+## 🔧 Technology Stack
+
+### Backend
+- **Rust** - Programming language for Solana programs
+- **Anchor Framework** - Framework for building Solana dApps
+
+### Frontend
+- **React** - User interface library
+- **Vite** - Build tool and dev server
+- **TypeScript** - Type-safe JavaScript
+- **Solana Web3.js** - Blockchain interaction
+- **Phantom Wallet Adapter** - Wallet integration
+
+---
+
+## 📦 Key Source Files
 
 | File | Purpose |
 |------|---------|
-| [`programs/civic-streak/src/lib.rs`](programs/civic-streak/src/lib.rs) | On-chain streak logic |
-| [`frontend/src/solana/client.ts`](frontend/src/solana/client.ts) | Transaction helpers |
-| [`frontend/src/components/StreakComponent.tsx`](frontend/src/components/StreakComponent.tsx) | Main UI component |
-| [`frontend/src/index.css`](frontend/src/index.css) | Complete styling |
+| [`programs/civic-streak/src/lib.rs`](programs/civic-streak/src/lib.rs) | On-chain streak logic and state management |
+| [`frontend/src/solana/client.ts`](frontend/src/solana/client.ts) | Transaction helpers and program interaction |
+| [`frontend/src/components/StreakComponent.tsx`](frontend/src/components/StreakComponent.tsx) | Main UI component for streak tracking |
+| [`frontend/src/components/About.tsx`](frontend/src/components/About.tsx) | About page component |
+| [`frontend/src/components/HowItWorks.tsx`](frontend/src/components/HowItWorks.tsx) | How it works guide page |
+| [`frontend/src/index.css`](frontend/src/index.css) | Complete styling with civic theme |
 
 ---
 
 ## 🧪 Testing
 
+Run the Anchor integration tests:
+
 ```bash
-# Run Anchor tests
+# Run all tests
 anchor test
 
-# With verbose output
+# Run with verbose output
 anchor test -v
+
+# Run specific test
+anchor test --skip-localnet
 ```
 
 ---
 
-## 📖 More Info
+## 📖 Documentation
 
-- [Deployment Guide](DEPLOYMENT_GUIDE.md) - Devnet/mainnet deployment
+- [Deployment Guide](DEPLOYMENT_GUIDE.md) - Complete devnet and mainnet deployment instructions
 - Frontend: `http://localhost:3000`
-- Explorer: `https://explorer.solana.com/?cluster=devnet`
+- Solana Explorer: `https://explorer.solana.com/?cluster=devnet`
 
 ---
 
-## 🏆 Hackathon Notes
+## 🤝 Contributing
 
-- **Simple & Clean** - Focused on core functionality
-- **Real Working Code** - Tested on devnet
-- **Beginner-Friendly** - Clear comments and structure
-- **Extensible** - Easy to add NFTs, DAOs, voting
+We welcome contributions! Please feel free to submit a Pull Request or open an Issue for:
+
+- Bug fixes
+- New features
+- Documentation improvements
+- UI/UX enhancements
 
 ---
 
-Built for the civic engagement hackathon 🚀
+## 📄 License
+
+This project is licensed under the MIT License.
+
+---
+
+## 🙏 Acknowledgments
+
+- Solana Foundation for the incredible blockchain infrastructure
+- Anchor team for the amazing development framework
+- The open-source community for continuous inspiration
+
+---
+
+Built with ❤️ on Solana
