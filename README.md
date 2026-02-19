@@ -9,18 +9,17 @@ A **streak-based civic engagement system** built on the Solana blockchain. Civic
 Democratic platforms and community organizations face significant challenges:
 
 - **Low User Retention**: Users often lose interest after initial engagement
-- **No Incentive for Daily Engagement**:缺乏持续的参与激励机制
-- **Centralized Data Manipulation Risks**: 中心化数据存在被篡改的风险
-- **Lack of Transparency**: 参与者难以验证他们的贡献是否被正确记录
-
+- **No Incentive for Daily Engagement**:Lack of sustainable reward mechanisms to encourage consistent participation.
+- **Centralized Data Manipulation Risks**:Centralized data is vulnerable to tampering or unauthorized alteration.
+- **Lack of Transparency**: Participants find it difficult to verify if their contributions are recorded accurately.
 ## 💡 Our Solution
 
 Civic Streak addresses these challenges with a gamified streak system built on Solana:
 
-- **Tamper-Proof Engagement Tracking**: 所有参与记录都存储在 Solana 区块链上，完全透明且不可篡改
-- **Daily Streaks with Flexible Window**: 24-48小时窗口期，允许用户在一天内完成操作
-- **Milestone Rewards**: 达到里程碑时获得徽章和 CIVIC 积分奖励
-- **Verifiable on-Chain**: 任何人都可以通过 Solana Explorer 验证参与记录
+- **Tamper-Proof Engagement Tracking**: All participation records are stored on the Solana blockchain, ensuring full transparency and immutability.
+- **Daily Streaks with Flexible Window**: A 24-48 hour window allows users sufficient time to complete actions across different time zones.
+- **Milestone Rewards**: Earn unique badges and CIVIC points upon reaching specific engagement milestones.
+- **Verifiable on-Chain**: Anyone can verify participation history and streak validity via the Solana Explorer.
 
 ---
 
