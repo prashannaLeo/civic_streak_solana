@@ -1971,6 +1971,254 @@ export const StreakComponent: React.FC = () => {
         .modal-close:hover {
           background: rgba(255, 255, 255, 0.05);
         }
+
+        /* ========================================
+           RESPONSIVE STYLES - MOBILE FIRST
+           ======================================== */
+
+        /* Tablet breakpoint (768px) */
+        @media (max-width: 768px) {
+          .header {
+            flex-direction: column;
+            gap: 16px;
+            padding: 16px;
+          }
+
+          .logo-small {
+            font-size: 24px;
+          }
+
+          .header h1 {
+            font-size: 1.5rem;
+          }
+
+          .wallet-badge {
+            margin-left: 0;
+            padding: 8px 12px;
+            width: 100%;
+            justify-content: space-between;
+          }
+
+          .wallet-address {
+            font-size: 12px;
+          }
+
+          .wallet-adapter-disconnect-button {
+            padding: 8px 10px !important;
+            font-size: 11px !important;
+          }
+
+          .transaction-notification,
+          .connection-stage,
+          .message {
+            margin: 16px 16px;
+            padding: 12px 16px;
+          }
+
+          .streak-card {
+            margin: 24px 16px;
+            padding: 32px 24px;
+            border-radius: 24px;
+          }
+
+          .streak-count {
+            font-size: 64px;
+          }
+
+          .streak-flame {
+            font-size: 40px;
+          }
+
+          .streak-label {
+            font-size: 18px;
+          }
+
+          .points-display {
+            padding: 12px 20px;
+            flex-direction: column;
+            gap: 8px;
+          }
+
+          .points-icon {
+            font-size: 28px;
+          }
+
+          .points-value {
+            font-size: 28px;
+          }
+
+          .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin: 0 16px;
+          }
+
+          .stat-card {
+            padding: 16px;
+            min-height: 44px;
+          }
+
+          .stat-icon {
+            font-size: 24px;
+          }
+
+          .stat-value {
+            font-size: 16px;
+          }
+
+          .stat-label {
+            font-size: 11px;
+          }
+
+          .action-button {
+            margin: 24px 16px 40px;
+            padding: 16px 24px;
+            font-size: 16px;
+            width: calc(100% - 32px);
+            min-height: 44px;
+          }
+
+          .badges-section {
+            margin: 0 16px 40px;
+          }
+
+          .badges-grid {
+            gap: 12px;
+          }
+        }
+
+        /* Mobile breakpoint (480px) */
+        @media (max-width: 480px) {
+          .header {
+            padding: 12px;
+          }
+
+          .logo-small {
+            font-size: 20px;
+          }
+
+          .header h1 {
+            font-size: 1.25rem;
+          }
+
+          .wallet-badge {
+            flex-direction: column;
+            gap: 8px;
+            padding: 10px;
+            border-radius: 16px;
+          }
+
+          .wallet-address {
+            font-size: 11px;
+            word-break: break-all;
+            text-align: center;
+          }
+
+          .wallet-adapter-disconnect-button {
+            width: 100%;
+            min-height: 44px;
+            padding: 10px 12px !important;
+            font-size: 12px !important;
+          }
+
+          .transaction-notification,
+          .connection-stage,
+          .message {
+            margin: 12px 12px;
+            padding: 10px 12px;
+            border-radius: 12px;
+          }
+
+          .tx-icon {
+            font-size: 22px;
+          }
+
+          .tx-title {
+            font-size: 14px;
+          }
+
+          .streak-card {
+            margin: 16px 12px;
+            padding: 24px 16px;
+            border-radius: 20px;
+          }
+
+          .streak-count {
+            font-size: 48px;
+          }
+
+          .streak-flame {
+            font-size: 32px;
+          }
+
+          .streak-label {
+            font-size: 16px;
+          }
+
+          .points-display {
+            padding: 10px 16px;
+            border-radius: 16px;
+          }
+
+          .points-icon {
+            font-size: 24px;
+          }
+
+          .points-value {
+            font-size: 24px;
+          }
+
+          .points-label {
+            font-size: 12px;
+          }
+
+          .stats-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin: 0 12px;
+          }
+
+          .stat-card {
+            flex-direction: row;
+            padding: 14px;
+            border-radius: 16px;
+            min-height: 44px;
+          }
+
+          .stat-icon {
+            font-size: 22px;
+          }
+
+          .stat-info {
+            text-align: left;
+          }
+
+          .stat-value {
+            font-size: 15px;
+          }
+
+          .stat-label {
+            font-size: 11px;
+          }
+
+          .action-button {
+            margin: 20px 12px 32px;
+            padding: 14px 20px;
+            font-size: 15px;
+            width: calc(100% - 24px);
+            min-height: 48px;
+            border-radius: 16px;
+          }
+
+          .badges-section {
+            margin: 0 12px 32px;
+          }
+
+          .badges-section h3 {
+            font-size: 18px;
+            margin-bottom: 16px;
+          }
+        }
       `}</style>
     </div>
   );

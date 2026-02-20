@@ -10,10 +10,12 @@ type Page = 'home' | 'about' | 'how-it-works';
 
 // Header Component
 function Header({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: Page) => void }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
   return (
     <header className="app-header">
       <div className="header-content">
-        <div className="header-brand" onClick={() => onNavigate('home')} style={{ cursor: 'pointer' }}>
+        <div className="header-brand" onClick={() => { onNavigate('home'); setMobileMenuOpen(false); }} style={{ cursor: 'pointer' }}>
           <div className="logo">
             <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
               <circle cx="16" cy="16" r="14" stroke="#8B5CF6" strokeWidth="2"/>
@@ -24,22 +26,39 @@ function Header({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p
           <span className="brand-name">Civic Streak</span>
         </div>
         
-        <nav className="header-nav">
+        {/* Mobile menu button */}
+        <button 
+          className="mobile-menu-btn"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label="Toggle menu"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            {mobileMenuOpen ? (
+              <path d="M6 6L18 18M6 18L18 6" />
+            ) : (
+              <>
+                <path d="M3 12h18M3 6h18M3 18h18" />
+              </>
+            )}
+          </svg>
+        </button>
+        
+        <nav className={`header-nav ${mobileMenuOpen ? 'open' : ''}`}>
           <button 
             className={`nav-link ${currentPage === 'home' ? 'active' : ''}`}
-            onClick={() => onNavigate('home')}
+            onClick={() => { onNavigate('home'); setMobileMenuOpen(false); }}
           >
             Home
           </button>
           <button 
             className={`nav-link ${currentPage === 'about' ? 'active' : ''}`}
-            onClick={() => onNavigate('about')}
+            onClick={() => { onNavigate('about'); setMobileMenuOpen(false); }}
           >
             About
           </button>
           <button 
             className={`nav-link ${currentPage === 'how-it-works' ? 'active' : ''}`}
-            onClick={() => onNavigate('how-it-works')}
+            onClick={() => { onNavigate('how-it-works'); setMobileMenuOpen(false); }}
           >
             How it Works
           </button>
@@ -63,6 +82,32 @@ function Header({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p
           </div>
         </div>
       </div>
+      
+      {/* Mobile navigation overlay */}
+      {mobileMenuOpen && (
+        <div className="mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}>
+          <nav className="mobile-nav" onClick={(e) => e.stopPropagation()}>
+            <button 
+              className={`nav-link ${currentPage === 'home' ? 'active' : ''}`}
+              onClick={() => { onNavigate('home'); setMobileMenuOpen(false); }}
+            >
+              Home
+            </button>
+            <button 
+              className={`nav-link ${currentPage === 'about' ? 'active' : ''}`}
+              onClick={() => { onNavigate('about'); setMobileMenuOpen(false); }}
+            >
+              About
+            </button>
+            <button 
+              className={`nav-link ${currentPage === 'how-it-works' ? 'active' : ''}`}
+              onClick={() => { onNavigate('how-it-works'); setMobileMenuOpen(false); }}
+            >
+              How it Works
+            </button>
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
