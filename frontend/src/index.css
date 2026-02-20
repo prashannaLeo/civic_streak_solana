@@ -261,6 +261,12 @@
 /* ====================================
    RESPONSIVE STYLES
    ==================================== */
+
+/* Hide mobile menu button by default on large screens */
+.mobile-menu-btn {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .header-content {
     padding: 0.75rem 1rem;
@@ -309,15 +315,6 @@
   .header-actions {
     flex-shrink: 0;
     order: 2;
-  }
-  
-  .mobile-menu-btn:hover {
-    background: rgba(139, 92, 246, 0.2);
-  }
-  
-  .mobile-menu-btn svg {
-    width: 20px;
-    height: 20px;
   }
   
   /* Mobile nav overlay */
