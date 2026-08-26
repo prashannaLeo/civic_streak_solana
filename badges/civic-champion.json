@@ -1,0 +1,48 @@
+{
+  "name": "Civic Champion",
+  "symbol": "CIVIC100",
+  "description": "The highest achievement for civic engagement! Awarded for completing an incredible 100-day streak of daily civic participation. This badge represents exceptional dedication to democracy and community.",
+  "image": "https://your-domain.com/badges/civic-champion.png",
+  "external_url": "https://your-app.com/badges/civic-champion",
+  "attributes": [
+    {
+      "trait_type": "Milestone",
+      "value": "100 Days"
+    },
+    {
+      "trait_type": "Badge Type",
+      "value": "Champion"
+    },
+    {
+      "trait_type": "Category",
+      "value": "Civic Engagement"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Legendary"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ],
+  "properties": {
+    "files": [
+      {
+        "uri": "https://your-domain.com/badges/civic-champion.png",
+        "type": "image/png"
+      }
+    ],
+    "category": "image",
+    "creators": [
+      {
+        "address": "CivicStreak11111111111111111111111111111111111111",
+        "share": 100
+      }
+    ]
+  },
+  "collection": {
+    "name": "Civic Streak Badges",
+    "family": "Civic Engagement NFT Series"
+  }
+}

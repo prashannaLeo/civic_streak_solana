@@ -1,0 +1,48 @@
+{
+  "name": "Consistent Citizen",
+  "symbol": "CIVIC30",
+  "description": "Awarded for maintaining a 30-day civic engagement streak. This badge demonstrates remarkable dedication to civic participation and community involvement.",
+  "image": "https://your-domain.com/badges/civic-citizen.png",
+  "external_url": "https://your-app.com/badges/civic-citizen",
+  "attributes": [
+    {
+      "trait_type": "Milestone",
+      "value": "30 Days"
+    },
+    {
+      "trait_type": "Badge Type",
+      "value": "Consistent"
+    },
+    {
+      "trait_type": "Category",
+      "value": "Civic Engagement"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Rare"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ],
+  "properties": {
+    "files": [
+      {
+        "uri": "https://your-domain.com/badges/civic-citizen.png",
+        "type": "image/png"
+      }
+    ],
+    "category": "image",
+    "creators": [
+      {
+        "address": "CivicStreak11111111111111111111111111111111111111",
+        "share": 100
+      }
+    ]
+  },
+  "collection": {
+    "name": "Civic Streak Badges",
+    "family": "Civic Engagement NFT Series"
+  }
+}
