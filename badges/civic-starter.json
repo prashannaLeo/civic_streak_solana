@@ -1,0 +1,44 @@
+{
+  "name": "Civic Starter",
+  "symbol": "CIVIC7",
+  "description": "Awarded for completing a 7-day civic engagement streak. This badge represents the beginning of a citizen's journey toward consistent civic participation.",
+  "image": "https://your-domain.com/badges/civic-starter.png",
+  "external_url": "https://your-app.com/badges/civic-starter",
+  "attributes": [
+    {
+      "trait_type": "Milestone",
+      "value": "7 Days"
+    },
+    {
+      "trait_type": "Badge Type",
+      "value": "Starter"
+    },
+    {
+      "trait_type": "Category",
+      "value": "Civic Engagement"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ],
+  "properties": {
+    "files": [
+      {
+        "uri": "https://your-domain.com/badges/civic-starter.png",
+        "type": "image/png"
+      }
+    ],
+    "category": "image",
+    "creators": [
+      {
+        "address": "CivicStreak11111111111111111111111111111111111111",
+        "share": 100
+      }
+    ]
+  },
+  "collection": {
+    "name": "Civic Streak Badges",
+    "family": "Civic Engagement NFT Series"
+  }
+}
